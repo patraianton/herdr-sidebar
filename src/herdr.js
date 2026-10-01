@@ -29,6 +29,7 @@ function makeHerdr(socketPath) {
     notify: (title, body) => c('notification.show', { title, body, sound: 'request' }),
     movePane: async (paneId, destination) => unwrapMove(await c('pane.move', { pane_id: paneId, destination, focus: false }, 30000)),
     closePane: id => c('pane.close', { pane_id: id }),
+    zoomPane: (id, mode) => c('pane.zoom', { pane_id: id, mode }),
     worktreeOpen: params => c('worktree.open', { ...params, focus: false }, 60000),
     openPluginPane: (entrypoint, env) => c('plugin.pane.open', { plugin_id: PLUGIN_ID, entrypoint, env: env || {} }),
     reloadConfig: () => c('server.reload_config', {}),

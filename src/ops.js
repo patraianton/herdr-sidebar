@@ -12,11 +12,24 @@ async function panesInTabOrder(herdr, wsId) {
   const out = [];
   for (const t of tabs) {
     panes.filter(p => p.tab_id === t.tab_id).forEach((p, i) => {
-      out.push({ paneId: p.pane_id, label: i ? `${t.label} ${i + 1}` : t.label });
+      out.push({ paneId: p.pane_id, tabId: t.tab_id, label: i ? `${t.label} ${i + 1}` : t.label });
     });
   }
   return out;
 }
+
+// herdr refuses to move a pane out of a zoomed tab (changed:false, reason
+// zoomed_tab), so switch zoom off in every tab first.
+async function unzoomTabs(herdr, panes) {
+  const seen = new Set();
+  for (const p of panes) {
+    if (seen.has(p.tabId)) continue;
+    seen.add(p.tabId);
+    await herdr.zoomPane(p.paneId, 'off').catch(() => {});
+  }
+}
+
+const movedTo = (res, wsId) => !!res && res.changed !== false && !!res.pane && res.pane.workspace_id === wsId;
 
 async function detach(herdr, state, { wsId, catId }) {
   const workspaces = await herdr.listWorkspaces();
@@ -27,14 +40,15 @@ async function detach(herdr, state, { wsId, catId }) {
   const parent = workspaces.find(w => w.worktree && normPath(w.worktree.repo_key) === rk && !w.worktree.is_linked_worktree);
   const panes = await panesInTabOrder(herdr, wsId);
   if (!panes.length) throw new Error('В рабочем месте нет окон.');
+  await unzoomTabs(herdr, panes);
 
   const first = await herdr.movePane(panes[0].paneId, { type: 'new_workspace', label: ws.label, tab_label: panes[0].label });
-  const newId = (first.created_workspace && first.created_workspace.workspace_id) || (first.pane && first.pane.workspace_id);
-  if (!newId) throw new Error('herdr не сообщил номер нового рабочего места.');
-  for (const p of panes.slice(1)) {
-    await herdr.movePane(p.paneId, { type: 'new_tab', workspace_id: newId, label: p.label });
+  const newId = first && first.changed !== false && first.created_workspace && first.created_workspace.workspace_id;
+  if (!newId || newId === wsId) {
+    throw new Error(`herdr не перенёс окно${first && first.reason ? ` (${first.reason})` : ''}. Ничего не изменилось.`);
   }
 
+  // The new workspace exists from here on: record it before moving the rest.
   state.detached[newId] = {
     checkout: cleanPath(ws.worktree.checkout_path),
     repoKey: rk,
@@ -43,7 +57,6 @@ async function detach(herdr, state, { wsId, catId }) {
     name: ws.label,
     at: Date.now(),
   };
-
   const key = `ws:${newId}`;
   const groupKey = `repo:${rk}`;
   for (const c of state.categories) c.units = c.units.filter(k => k !== key);
@@ -56,6 +69,15 @@ async function detach(herdr, state, { wsId, catId }) {
   }
   state.units[key] = { path: normPath(ws.worktree.checkout_path), label: ws.label, seen: Date.now() };
   for (const d of Object.values(state.duty)) if (d.wsId === wsId) d.wsId = newId;
+
+  const stuck = [];
+  for (const p of panes.slice(1)) {
+    const res = await herdr.movePane(p.paneId, { type: 'new_tab', workspace_id: newId, label: p.label });
+    if (!movedTo(res, newId)) stuck.push(p.paneId);
+  }
+  if (stuck.length) {
+    throw new Error(`Копия вынесена не целиком: окна ${stuck.join(', ')} остались в «${ws.label}» (${wsId}), остальные — в новом месте ${newId}. Ничего не закрыто.`);
+  }
   return { wsId: newId };
 }
 
@@ -69,12 +91,20 @@ async function reattach(herdr, state, { wsId }) {
   const res = await herdr.worktreeOpen({ ...where, path: d.checkout, label: d.name });
   const target = res.workspace.workspace_id;
   if (target !== wsId) {
-    // herdr did not recognise our workspace (its first pane left the checkout)
-    // and opened a fresh one: move our panes over, then close its empty shell.
-    const fresh = res.root_pane && res.root_pane.pane_id;
-    for (const p of await panesInTabOrder(herdr, wsId)) {
-      await herdr.movePane(p.paneId, { type: 'new_tab', workspace_id: target, label: p.label });
+    // herdr answered with another workspace: either it opened a fresh one (our
+    // first pane left the checkout) or one was already open on this checkout.
+    // Move our panes there; close only the empty shell of a freshly made one.
+    const panes = await panesInTabOrder(herdr, wsId);
+    await unzoomTabs(herdr, panes);
+    const stuck = [];
+    for (const p of panes) {
+      const moved = await herdr.movePane(p.paneId, { type: 'new_tab', workspace_id: target, label: p.label });
+      if (!movedTo(moved, target)) stuck.push(p.paneId);
     }
+    if (stuck.length) {
+      throw new Error(`Вернуть удалось не всё: окна ${stuck.join(', ')} остались в ${wsId}, остальные — в ${target}. Ничего не закрыто.`);
+    }
+    const fresh = res.already_open === false && res.root_pane && res.root_pane.pane_id;
     if (fresh) await herdr.closePane(fresh).catch(() => {});
     for (const x of Object.values(state.duty)) if (x.wsId === wsId) x.wsId = target;
   }
