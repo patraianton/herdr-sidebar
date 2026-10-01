@@ -1,0 +1,13 @@
+{
+  "name": "herdr-sidebar",
+  "private": true,
+  "version": "0.1.0",
+  "description": "herdr plugin: categories, worktree detach and duty agents in the Spaces sidebar",
+  "license": "UNLICENSED",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
