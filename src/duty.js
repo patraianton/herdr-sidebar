@@ -87,18 +87,21 @@ function condition(d, now, settings) {
 }
 
 // One alert per incident: 'alert' when it starts, 'recover' when it ends.
+// During the grace period after the helper starts (agents are still being
+// restored) no new alert is raised, except one the agent reported itself;
+// recoveries and updates of a standing alert still happen.
 function evaluate(prev, agent, now, settings, startedAt) {
   const d = observe(prev, agent, now);
   const cond = condition(d, now, settings);
   const inGrace = now - startedAt < settings.graceMin * MIN;
-  if (inGrace && !(cond && cond.kind === 'fail')) return { duty: d, event: null };
   if (cond) {
-    if (!d.alert) {
-      d.alert = { kind: cond.kind, text: cond.text, since: now };
-      return { duty: d, event: 'alert' };
+    if (d.alert) {
+      d.alert = { ...d.alert, kind: cond.kind, text: cond.text };
+      return { duty: d, event: null };
     }
-    d.alert = { ...d.alert, kind: cond.kind, text: cond.text };
-    return { duty: d, event: null };
+    if (inGrace && cond.kind !== 'fail') return { duty: d, event: null };
+    d.alert = { kind: cond.kind, text: cond.text, since: now };
+    return { duty: d, event: 'alert' };
   }
   if (d.alert) {
     // Recovery needs the agent in sight: a window that just vanished is not "fixed".

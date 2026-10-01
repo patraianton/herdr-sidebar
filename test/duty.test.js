@@ -185,3 +185,21 @@ test('an agent back after a long absence with a new terminal is not reported as 
   assert.equal(r.event, 'recover');
   assert.equal(duty.dutyToken(r.duty), '◆ дежурит · 30м');
 });
+
+test('ok clears an agent-reported alert at once, even right after the helper started', () => {
+  let d = duty.applyFail(fresh(), T0 + MIN, 'беда');
+  let r = duty.evaluate(d, agent(), T0 + MIN, S, T0);
+  assert.equal(r.event, 'alert');
+  d = duty.applyOk(r.duty, T0 + 2 * MIN);
+  r = duty.evaluate(d, agent(), T0 + 2 * MIN, S, T0);
+  assert.equal(r.event, 'recover');
+  assert.equal(duty.dutyToken(r.duty), '◆ дежурит · 30м');
+});
+
+test('a window that comes back during the grace period is reported as recovered', () => {
+  let r = duty.evaluate(fresh(), null, T0 + 1 * MIN, S, STARTED);
+  r = duty.evaluate(r.duty, null, T0 + 5 * MIN, S, STARTED);
+  assert.equal(r.event, 'alert');
+  r = duty.evaluate(r.duty, agent(), T0 + 6 * MIN, S, T0 + 6 * MIN);
+  assert.equal(r.event, 'recover');
+});
