@@ -3,6 +3,9 @@
 const rpc = require('./rpc');
 
 const SOURCE = 'anton.sidebar';
+
+// herdr answers pane.move with { type: 'pane_move', move_result: { ... } }.
+const unwrapMove = r => (r && r.move_result ? r.move_result : r);
 const PLUGIN_ID = 'anton.sidebar';
 
 function makeHerdr(socketPath) {
@@ -24,7 +27,7 @@ function makeHerdr(socketPath) {
     },
     setTokens: (wsId, tokens) => c('workspace.report_metadata', { workspace_id: wsId, source: SOURCE, tokens }),
     notify: (title, body) => c('notification.show', { title, body, sound: 'request' }),
-    movePane: (paneId, destination) => c('pane.move', { pane_id: paneId, destination, focus: false }, 30000),
+    movePane: async (paneId, destination) => unwrapMove(await c('pane.move', { pane_id: paneId, destination, focus: false }, 30000)),
     closePane: id => c('pane.close', { pane_id: id }),
     worktreeOpen: params => c('worktree.open', { ...params, focus: false }, 60000),
     openPluginPane: (entrypoint, env) => c('plugin.pane.open', { plugin_id: PLUGIN_ID, entrypoint, env: env || {} }),
@@ -32,4 +35,4 @@ function makeHerdr(socketPath) {
   };
 }
 
-module.exports = { makeHerdr, SOURCE, PLUGIN_ID };
+module.exports = { makeHerdr, unwrapMove, SOURCE, PLUGIN_ID };
