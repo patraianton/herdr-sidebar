@@ -20,8 +20,11 @@ const SUBSCRIPTIONS = [
 ].map(type => ({ type }));
 const TOKEN_KEYS = ['project', 'duty'];
 
-function createDaemon({ socketPath, dir, configDir }) {
-  const herdr = makeHerdr(socketPath);
+function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: subscribeIn, now: clockIn, sendTelegram: sendIn }) {
+  const herdr = herdrIn || makeHerdr(socketPath);
+  const subscribe = subscribeIn || rpc.subscribe;
+  const clock = clockIn || Date.now;
+  const sendTelegram = sendIn || notify.sendTelegramWithRetry;
   const files = {
     state: path.join(dir, 'state.json'),
     original: path.join(dir, 'original.json'),
@@ -30,7 +33,7 @@ function createDaemon({ socketPath, dir, configDir }) {
   };
   const settings = { ...duty.DEFAULT_SETTINGS, ...store.loadJson(path.join(configDir, 'settings.json'), {}) };
   let state = store.loadState(files.state);
-  let startedAt = Date.now();
+  let startedAt = clock();
   let chain = Promise.resolve();
   const last = { snap: null, units: null, headers: {} };
   let sub = null;
@@ -43,6 +46,8 @@ function createDaemon({ socketPath, dir, configDir }) {
   let failCount = 0;
   const recentMoves = [];
   let stopping = false;
+  let lastTickAt = 0;
+  let continuityBroken = true; // first cycle after start or after herdr came back
 
   function log(...parts) {
     const line = `${new Date().toISOString()} ${parts.map(p => (typeof p === 'string' ? p : JSON.stringify(p))).join(' ')}\n`;
@@ -126,7 +131,7 @@ function createDaemon({ socketPath, dir, configDir }) {
   }
 
   function allowMove() {
-    const now = Date.now();
+    const now = clock();
     while (recentMoves.length && now - recentMoves[0] > 60000) recentMoves.shift();
     if (recentMoves.length >= 10) {
       pauseUntil = now + 5 * 60000;
@@ -138,7 +143,7 @@ function createDaemon({ socketPath, dir, configDir }) {
   }
 
   async function syncOrder(reason) {
-    const now = Date.now();
+    const now = clock();
     let snap = await snapshot();
     if (!fs.existsSync(files.original)) {
       store.saveJson(files.original, {
@@ -150,9 +155,15 @@ function createDaemon({ socketPath, dir, configDir }) {
     for (const id of Object.keys(state.detached)) {
       if (!snap.byId.has(id)) { log('detached workspace is gone', id); delete state.detached[id]; }
     }
+    if (continuityBroken) {
+      for (const id of model.staleDetached(state.detached, snap.workspaces, snap.paths)) {
+        log('detached record dropped: the workspace id now belongs to another workspace', id);
+        delete state.detached[id];
+      }
+    }
     let h = liveHeaders(snap);
     let units = model.buildUnits(snap.workspaces, snap.paths, h.ids);
-    state = model.reconcile(state, units, now);
+    state = model.reconcile(state, units, now, { continuous: !continuityBroken });
     const learned = model.learnFromOrder(state, units, snap.order, h.headers);
     if (learned.moved.length) {
       log('moved by hand:', learned.moved.join(' '), learned.headerMoved ? '(a header: put back)' : '');
@@ -173,7 +184,7 @@ function createDaemon({ socketPath, dir, configDir }) {
         state.lastApplied = snap.order;
         failCount++;
         log('move_block failed', e.message);
-        if (failCount >= 3) { pauseUntil = Date.now() + 5 * 60000; failCount = 0; log('order paused for 5 minutes'); }
+        if (failCount >= 3) { pauseUntil = clock() + 5 * 60000; failCount = 0; log('order paused for 5 minutes'); }
       }
     } else {
       state.lastApplied = snap.order;
@@ -181,6 +192,7 @@ function createDaemon({ socketPath, dir, configDir }) {
     last.snap = snap;
     last.units = units;
     last.headers = h.headers;
+    continuityBroken = false;
     return snap;
   }
 
@@ -219,7 +231,7 @@ function createDaemon({ socketPath, dir, configDir }) {
     log('duty', event, label, body);
     herdr.notify(`Дежурство: ${label}`, body).catch(e => log('toast failed', e.message));
     const text = event === 'alert' ? duty.alertText(label, d) : duty.recoverText(label);
-    notify.sendTelegramWithRetry(configDir, text, { log })
+    sendTelegram(configDir, text, { log })
       .then(r => log('telegram', r === null ? 'not set up' : (r ? 'sent' : 'failed')));
   }
 
@@ -227,12 +239,13 @@ function createDaemon({ socketPath, dir, configDir }) {
     const ids = Object.keys(state.duty);
     if (!ids.length) return;
     const agents = await herdr.listAgents();
-    const now = Date.now();
+    const now = clock();
     for (const id of ids) {
       const prev = state.duty[id];
-      const { duty: d, event } = duty.evaluate(prev, duty.locateAgent(prev, agents), now, settings, startedAt);
+      const agent = duty.locateAgent(prev, agents);
+      const { duty: d, event } = duty.evaluate(prev, agent, now, settings, startedAt);
       const w = snap.byId.get(d.wsId);
-      if (w) d.label = w.label;
+      if (agent && w) d.label = w.label; // a vanished agent's workspace id may now belong to someone else
       state.duty[id] = d;
       if (event) signal(event, d);
     }
@@ -240,29 +253,46 @@ function createDaemon({ socketPath, dir, configDir }) {
 
   async function cycleInner(reason) {
     if (!connected || stopping) return;
-    const snap = await syncOrder(reason);
-    await checkDuty(snap);
-    await publishTokens(snap);
-    save();
+    try {
+      const snap = await syncOrder(reason);
+      try { await checkDuty(snap); } catch (e) { log('duty check failed', e.message); }
+      await publishTokens(snap);
+    } finally {
+      save();
+    }
   }
   const cycle = reason => serial(() => cycleInner(reason)).catch(e => log('cycle failed', reason, e.message));
   function kick(reason, delayMs) {
     clearTimeout(kickTimer);
     kickTimer = setTimeout(() => cycle(reason), delayMs);
+    if (kickTimer.unref) kickTimer.unref();
+  }
+
+  function tick() {
+    const t = clock();
+    if (lastTickAt && t - lastTickAt > 3 * settings.tickSec * 1000) {
+      startedAt = t;
+      log('long pause between checks (computer asleep?); duty grace starts again');
+    }
+    lastTickAt = t;
+    return cycle('tick');
   }
 
   function connectEvents() {
     if (stopping) return;
-    sub = rpc.subscribe(socketPath, SUBSCRIPTIONS, {
+    sub = subscribe(socketPath, SUBSCRIPTIONS, {
       onReady: () => { connected = true; lostSince = null; log('connected to herdr'); kick('connect', 0); },
       onEvent: () => kick('event', 1000),
       onClose: err => {
+        const wasConnected = connected;
         connected = false;
         sub = null;
+        if (wasConnected) serverWasDown = true; // herdr may have restarted: agents come back late
         if (stopping) return;
         log('event stream closed', err ? err.message : '');
-        lostSince = lostSince || Date.now();
-        setTimeout(reconnect, 2000);
+        lostSince = lostSince || clock();
+        const t = setTimeout(reconnect, 2000);
+        if (t.unref) t.unref();
       },
     });
   }
@@ -273,11 +303,17 @@ function createDaemon({ socketPath, dir, configDir }) {
       await herdr.ping();
     } catch {
       serverWasDown = true;
-      if (Date.now() - lostSince > 10 * 60000) { log('herdr is gone for 10 minutes; exiting'); shutdown(0); return; }
-      setTimeout(reconnect, 5000);
+      if (clock() - lostSince > 10 * 60000) { log('herdr is gone for 10 minutes; exiting'); shutdown(0); return; }
+      const t = setTimeout(reconnect, 5000);
+      if (t.unref) t.unref();
       return;
     }
-    if (serverWasDown) { startedAt = Date.now(); serverWasDown = false; log('herdr is back; duty grace starts again'); }
+    if (serverWasDown) {
+      startedAt = clock();
+      serverWasDown = false;
+      continuityBroken = true;
+      log('herdr is back; duty grace starts again');
+    }
     connectEvents();
   }
 
@@ -366,7 +402,7 @@ function createDaemon({ socketPath, dir, configDir }) {
       if (!everyMs) throw new Error(`Не понял интервал «${args.every}». Пример: 30m, 1h, 2ч.`);
       const { pane, found } = await dutyTarget(args);
       if (!pane && !found) throw new Error('Не нашёл окно агента. Команду надо запускать из окна агента в herdr.');
-      const now = Date.now();
+      const now = clock();
       let d;
       if (found) {
         d = { ...duty.applyReset(found, now), everyMs, note: args.note || found.note };
@@ -387,13 +423,13 @@ function createDaemon({ socketPath, dir, configDir }) {
     'duty.ok': async args => {
       const { found } = await dutyTarget(args);
       if (!found) throw new Error(NO_DUTY);
-      state.duty[found.id] = duty.applyOk(found, Date.now());
+      state.duty[found.id] = duty.applyOk(found, clock());
       return { id: found.id };
     },
     'duty.fail': async args => {
       const { found } = await dutyTarget(args);
       if (!found) throw new Error(NO_DUTY);
-      state.duty[found.id] = duty.applyFail(found, Date.now(), args.reason);
+      state.duty[found.id] = duty.applyFail(found, clock(), args.reason);
       return { id: found.id };
     },
     'duty.stop': async args => {
@@ -406,7 +442,7 @@ function createDaemon({ socketPath, dir, configDir }) {
     'duty.reset': async args => {
       const { found } = await dutyTarget(args);
       if (!found) throw new Error(NO_DUTY);
-      state.duty[found.id] = duty.applyReset(found, Date.now());
+      state.duty[found.id] = duty.applyReset(found, clock());
       return { id: found.id };
     },
     'duty.status': async () => Object.values(state.duty).map(d => ({
@@ -414,27 +450,35 @@ function createDaemon({ socketPath, dir, configDir }) {
     })),
     uninstall: async () => {
       stopping = true;
-      let snap = await snapshot();
-      const h = liveHeaders(snap);
-      for (const id of h.ids) await closeHeader(snap, id);
-      snap = await snapshot();
-      const orig = store.loadJson(files.original, null);
-      if (orig && Array.isArray(orig.order)) {
-        const live = new Set(snap.order);
-        const desired = orig.order.filter(id => live.has(id));
-        for (const id of snap.order) if (!desired.includes(id)) desired.push(id);
-        if (desired.join() !== snap.order.join()) await herdr.moveBlock(desired);
+      let detachedLeft = 0;
+      let orig = null;
+      try {
+        let snap = await snapshot();
+        const h = liveHeaders(snap);
+        for (const id of h.ids) await closeHeader(snap, id);
+        snap = await snapshot();
+        orig = store.loadJson(files.original, null);
+        if (orig && Array.isArray(orig.order)) {
+          const live = new Set(snap.order);
+          const desired = orig.order.filter(id => live.has(id));
+          for (const id of snap.order) if (!desired.includes(id)) desired.push(id);
+          if (desired.join() !== snap.order.join()) await herdr.moveBlock(desired);
+        }
+        for (const w of snap.workspaces) {
+          const t = w.tokens || {};
+          if (t.project != null || t.duty != null) await herdr.setTokens(w.workspace_id, { project: null, duty: null }).catch(() => {});
+        }
+        detachedLeft = Object.keys(state.detached).length;
+        store.saveJson(path.join(dir, `state.uninstalled-${new Date().toISOString().slice(0, 10)}.json`), state);
+        state = store.emptyState();
+        save();
+        try { fs.unlinkSync(files.original); } catch {}
+        log('uninstalled: order restored, headers closed, tokens cleared');
+      } catch (e) {
+        stopping = false;
+        log('uninstall failed', e.message);
+        throw new Error(`Откат не удался: ${e.message}. Плагин продолжает работать, ничего не выключено.`);
       }
-      for (const w of snap.workspaces) {
-        const t = w.tokens || {};
-        if (t.project != null || t.duty != null) await herdr.setTokens(w.workspace_id, { project: null, duty: null }).catch(() => {});
-      }
-      const detachedLeft = Object.keys(state.detached).length;
-      store.saveJson(path.join(dir, `state.uninstalled-${new Date().toISOString().slice(0, 10)}.json`), state);
-      state = store.emptyState();
-      save();
-      try { fs.unlinkSync(files.original); } catch {}
-      log('uninstalled: order restored, headers closed, tokens cleared');
       setTimeout(() => shutdown(0), 300);
       return { restored: !!orig, detachedLeft };
     },
@@ -476,11 +520,19 @@ function createDaemon({ socketPath, dir, configDir }) {
     }
     log('helper started, pid', process.pid, 'session', paths.sessionName(socketPath));
     connectEvents();
-    setInterval(() => cycle('tick'), settings.tickSec * 1000);
+    setInterval(tick, settings.tickSec * 1000);
     return true;
   }
 
-  return { start, handle, log };
+  return {
+    start, handle, log,
+    _test: {
+      markConnected: () => { connected = true; },
+      cycle: reason => serial(() => cycleInner(reason)),
+      connectEvents, reconnect, tick,
+      state: () => state, startedAt: () => startedAt, stopping: () => stopping,
+    },
+  };
 }
 
 if (require.main === module) {

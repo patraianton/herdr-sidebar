@@ -47,11 +47,12 @@ async function helper(cmd, args) {
   const pipe = paths.daemonPipe(sock);
   try { return await ipc.request(pipe, cmd, args); } catch (e) { if (!ipc.isConnError(e)) throw e; }
   herdrRun(['plugin', 'action', 'invoke', `${PLUGIN_ID}.ensure`]);
-  for (let i = 0; i < 40; i++) {
+  const waitMs = Number(process.env.SIDEBAR_HELPER_WAIT_MS) || 10000;
+  for (let waited = 0; waited < waitMs; waited += 250) {
     await sleep(250);
     try { return await ipc.request(pipe, cmd, args); } catch (e) { if (!ipc.isConnError(e)) throw e; }
   }
-  return fail('Помощник плагина не запустился. Проверьте: herdr plugin list (anton.sidebar должен быть включён).');
+  throw new Error('помощник плагина не запустился (проверьте: herdr plugin list, anton.sidebar должен быть включён)');
 }
 
 async function duty(argv) {
@@ -144,16 +145,17 @@ function install() {
 }
 
 async function uninstall() {
-  const sock = process.env.HERDR_SOCKET_PATH;
-  if (sock) {
-    try {
-      const r = await ipc.request(paths.daemonPipe(sock), 'uninstall', {}, 120000);
-      say('Порядок рабочих мест возвращён, заголовки закрыты, пометки сняты.');
-      if (r && r.detachedLeft) say(`Вынесенных копий осталось: ${r.detachedLeft} — они остаются отдельными рабочими местами.`);
-    } catch (e) {
-      say(`Помощник не ответил (${e.message}). Порядок и заголовки не тронуты.`);
-    }
+  if (!process.env.HERDR_SOCKET_PATH) fail('Откат запускается внутри herdr (нет HERDR_SOCKET_PATH).');
+  // The helper restores the order first; if it cannot, stop here and change nothing else.
+  let r;
+  try {
+    r = await helper('uninstall', {});
+  } catch (e) {
+    fail(`Порядок вернуть не удалось: ${e.message}
+Настройки herdr и плагин не тронуты. Повторите позже.`);
   }
+  say('Порядок рабочих мест возвращён, заголовки закрыты, пометки сняты.');
+  if (r && r.detachedLeft) say(`Вынесенных копий осталось: ${r.detachedLeft} — они остаются отдельными рабочими местами.`);
   const cfgDir = pluginConfigDir();
   const instFile = path.join(cfgDir, 'install.json');
   const inst = store.loadJson(instFile, null);

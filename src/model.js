@@ -47,6 +47,7 @@ function buildUnits(workspaces, paths, headerIds) {
         path: normPath(anchor.worktree.repo_root || anchor.worktree.checkout_path),
         linked: false,
         children: kids.map(m => ({ wsId: m.workspace_id, label: m.label, checkout: m.worktree.checkout_path })),
+        members: [...parents, ...kids].map(m => ({ wsId: m.workspace_id, label: m.label, path: normPath(m.worktree.checkout_path) })),
         extraParents: parents.slice(1).map(m => ({ wsId: m.workspace_id, label: m.label })),
       };
     } else {
@@ -78,8 +79,15 @@ function findReplacement(key, rec, units, assigned) {
 }
 
 // Bind stored category members to the live units. Returns a new state.
-function reconcile(state, units, now) {
+// opts.continuous: the helper saw the previous cycle too, so a key whose record
+// was refreshed in that cycle is the same workspace even if a `cd` changed its
+// folder and name. Without continuity (helper just started, herdr restarted, or
+// the key was absent last cycle) a key whose folder and name both changed is
+// treated as an id reused by an unrelated workspace.
+function reconcile(state, units, now, opts = {}) {
   const s = clone(state);
+  const prevCycle = state.lastCycleAt;
+  const continuousKey = k => !!opts.continuous && prevCycle != null && !!s.units[k] && s.units[k].seen >= prevCycle;
   const assigned = new Set();
   for (const c of s.categories) for (const k of c.units) if (units.byKey[k]) assigned.add(k);
 
@@ -89,7 +97,7 @@ function reconcile(state, units, now) {
       const u = units.byKey[k];
       const rec = s.units[k];
       if (u) {
-        if (u.kind === 'ws' && rec && rec.path && u.path && rec.path !== u.path && rec.label !== u.label) {
+        if (u.kind === 'ws' && rec && rec.path && u.path && rec.path !== u.path && rec.label !== u.label && !continuousKey(k)) {
           assigned.delete(k); // the id now belongs to an unrelated workspace
           delete s.units[k];
           continue;
@@ -111,12 +119,17 @@ function reconcile(state, units, now) {
   // A live group that is not placed inherits the slot of a member placed alone.
   for (const u of units.units) {
     if (u.kind !== 'group' || assigned.has(u.key)) continue;
-    const memberKeys = new Set(u.wsIds.map(id => `ws:${id}`));
+    const members = new Map(u.members.map(m => [`ws:${m.wsId}`, m]));
+    const ownMember = k => {
+      const m = members.get(k);
+      const rec = s.units[k];
+      return !!m && (!rec || rec.path === m.path || rec.label === m.label);
+    };
     let placed = false;
     for (const c of s.categories) {
       const next = [];
       for (const k of c.units) {
-        if (!memberKeys.has(k)) { next.push(k); continue; }
+        if (!ownMember(k)) { next.push(k); continue; }
         if (!placed) { next.push(u.key); placed = true; assigned.add(u.key); }
         delete s.units[k];
       }
@@ -136,7 +149,22 @@ function reconcile(state, units, now) {
       return true;
     });
   }
+  s.lastCycleAt = now;
   return s;
+}
+
+// After a gap in observation: detached records whose workspace now has another
+// name and lives outside the copy's folder belong to a reused id.
+function staleDetached(detached, workspaces, paths) {
+  const byId = new Map(workspaces.map(w => [w.workspace_id, w]));
+  return Object.entries(detached).filter(([id, d]) => {
+    const w = byId.get(id);
+    if (!w) return false;
+    const p = normPath((w.worktree && w.worktree.checkout_path) || paths[id]);
+    const c = normPath(d.checkout);
+    const inside = !!c && (p === c || p.startsWith(`${c}/`));
+    return w.label !== d.name && !inside;
+  }).map(([id]) => id);
 }
 
 function categoryOf(state, key) {
@@ -232,6 +260,6 @@ function learnFromOrder(state, units, liveOrder, headers) {
 
 module.exports = {
   NONE_ID, NONE_LABEL, headerLabel, isHeaderLabel,
-  buildUnits, reconcile, categoryOf, desiredOrder, learnFromOrder,
+  buildUnits, reconcile, categoryOf, desiredOrder, learnFromOrder, staleDetached,
   _internal: { displaySeq, weightedLcs },
 };

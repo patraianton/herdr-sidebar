@@ -37,6 +37,7 @@ function emptyState() {
     detached: {},     // workspace id -> { checkout, repoKey, repoRoot, parentLabel, name, at }
     duty: {},         // duty id -> duty record (see duty.js)
     lastApplied: null, // workspace ids in the order the helper last saw or set
+    lastCycleAt: null, // time of the last reconcile (continuity of observation)
     nextId: 1,
   };
 }

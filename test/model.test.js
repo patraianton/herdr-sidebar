@@ -222,3 +222,46 @@ test('learn: does nothing without categories or without a previous order', () =>
   x.s.lastApplied = null;
   assert.deepEqual(learn(x, ['w1']).moved, []);
 });
+
+test('reconcile keeps a workspace that stayed open while cd changed its folder and name', () => {
+  const s = emptyState();
+  s.categories = [{ id: 'c1', name: 'A', units: ['ws:w1'] }];
+  s.units['ws:w1'] = { path: 'c:/p/foo', label: 'foo', seen: 50 };
+  s.lastCycleAt = 50;
+  const r = model.reconcile(s, model.buildUnits(world(), PATHS, new Set()), 60, { continuous: true });
+  assert.deepEqual(r.categories[0].units, ['ws:w1']);
+  assert.equal(r.units['ws:w1'].label, 'fix-pc');
+  assert.equal(r.lastCycleAt, 60);
+});
+
+test('reconcile treats a changed id as reused after a gap', () => {
+  const s = emptyState();
+  s.categories = [{ id: 'c1', name: 'A', units: ['ws:w1'] }];
+  s.units['ws:w1'] = { path: 'c:/p/foo', label: 'foo', seen: 40 };
+  s.lastCycleAt = 50; // absent in the last cycle
+  const u = model.buildUnits(world(), PATHS, new Set());
+  assert.deepEqual(model.reconcile(s, u, 60, { continuous: true }).categories[0].units, []);
+  s.units['ws:w1'].seen = 50; // present, but the helper just started
+  assert.deepEqual(model.reconcile(s, u, 60, { continuous: false }).categories[0].units, []);
+});
+
+test('reconcile: a group does not inherit the slot of a stale key whose id was reused', () => {
+  const s = emptyState();
+  s.categories = [{ id: 'c1', name: 'A', units: ['ws:w4'] }];
+  s.units['ws:w4'] = { path: 'c:/old/thing', label: 'old', seen: 1 };
+  const r = model.reconcile(s, model.buildUnits(world(), PATHS, new Set()), 5);
+  assert.ok(!r.categories[0].units.includes(AP));
+});
+
+test('reconcile: a group inherits the slot of its own member placed alone before', () => {
+  const s = emptyState();
+  s.categories = [{ id: 'c1', name: 'A', units: ['ws:w4'] }];
+  s.units['ws:w4'] = { path: 'c:/wt/cookie', label: 'cookie', seen: 1 };
+  const r = model.reconcile(s, model.buildUnits(world(), PATHS, new Set()), 5);
+  assert.deepEqual(r.categories[0].units, [AP]);
+});
+
+test('staleDetached: after a gap, a detached record on a workspace with another name and folder is stale', () => {
+  const detached = { w1: { name: 'cookie', checkout: 'C:/wt/cookie' }, w3: { name: 'blog', checkout: 'C:/x' }, w5: { name: 'zzz', checkout: 'C:/wt/lonely' } };
+  assert.deepEqual(model.staleDetached(detached, world(), PATHS), ['w1']);
+});
