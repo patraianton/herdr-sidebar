@@ -45,7 +45,8 @@ test('locateAgent: terminal, then agent session, then pane', () => {
   const d = fresh();
   assert.equal(duty.locateAgent(d, [agent({ pane_id: 'w9:p1', terminal_id: 't1' })]).pane_id, 'w9:p1');
   assert.equal(duty.locateAgent(d, [agent({ terminal_id: 't2', pane_id: 'w5:p3' })]).pane_id, 'w5:p3');
-  assert.equal(duty.locateAgent(d, [agent({ terminal_id: 't2', agent_session: { value: 'other' } })]).pane_id, 'w1:p1');
+  assert.equal(duty.locateAgent(d, [agent({ terminal_id: 't2', agent_session: { value: 'other' } })]), null, 'same pane, another agent session: not ours');
+  assert.equal(duty.locateAgent(d, [agent({ terminal_id: 't2', agent_session: null })]).pane_id, 'w1:p1');
   assert.equal(duty.locateAgent(d, [agent({ terminal_id: 't2', agent_session: null, pane_id: 'w2:p1' })]), null);
 });
 
@@ -160,4 +161,27 @@ test('messages', () => {
   const d = { ...fresh(), alert: { kind: 'sleep', text: 'не просыпался 75м', since: T0 } };
   assert.equal(duty.alertText('google-ads', d), '🔴 Дежурство: google-ads — не просыпался 75м');
   assert.equal(duty.recoverText('google-ads'), '🟢 Дежурство: google-ads — снова работает');
+});
+
+test('after a restart a new terminal with a lower seq is not a wake-up; a sleep alert waits for real activity', () => {
+  let r = duty.evaluate(fresh(), agent({ state_change_seq: 500 }), T0 + 1 * MIN, S, STARTED);
+  r = duty.evaluate(r.duty, agent({ state_change_seq: 500 }), T0 + 50 * MIN, S, STARTED);
+  assert.equal(r.event, 'alert');
+  const started2 = T0 + 60 * MIN;
+  r = duty.evaluate(r.duty, agent({ terminal_id: 't9', state_change_seq: 3 }), T0 + 61 * MIN, S, started2);
+  assert.equal(r.event, null);
+  r = duty.evaluate(r.duty, agent({ terminal_id: 't9', state_change_seq: 3 }), T0 + 72 * MIN, S, started2);
+  assert.equal(r.event, null, 'no false recovery after grace');
+  assert.ok(r.duty.alert);
+  r = duty.evaluate(r.duty, agent({ terminal_id: 't9', state_change_seq: 4 }), T0 + 73 * MIN, S, started2);
+  assert.equal(r.event, 'recover', 'real activity clears it');
+});
+
+test('an agent back after a long absence with a new terminal is not reported as not waking', () => {
+  let r = duty.evaluate(fresh(), null, T0 + 1 * MIN, S, STARTED);
+  r = duty.evaluate(r.duty, null, T0 + 5 * MIN, S, STARTED);
+  assert.equal(r.event, 'alert');
+  r = duty.evaluate(r.duty, agent({ terminal_id: 't9' }), T0 + 200 * MIN, S, STARTED);
+  assert.equal(r.event, 'recover');
+  assert.equal(duty.dutyToken(r.duty), '◆ дежурит · 30м');
 });

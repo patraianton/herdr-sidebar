@@ -30,7 +30,7 @@ function newDuty({ id, wsId, label, paneId, terminalId, agentSession, everyMs, n
   return {
     id, wsId, label: label || '', paneId: paneId || null, terminalId: terminalId || null,
     agentSession: agentSession || null, everyMs, note: note || '', source: source || 'agent',
-    createdAt: now, lastLifeAt: now, lastSeq: null, blockedSince: null, missingSince: null,
+    createdAt: now, lastLifeAt: now, lastActiveAt: now, lastSeq: null, blockedSince: null, missingSince: null,
     fail: null, alert: null,
   };
 }
@@ -38,21 +38,30 @@ function newDuty({ id, wsId, label, paneId, terminalId, agentSession, everyMs, n
 function locateAgent(d, agents) {
   return (d.terminalId && agents.find(a => a.terminal_id === d.terminalId))
     || (d.agentSession && agents.find(a => a.agent_session && a.agent_session.value === d.agentSession))
-    || (d.paneId && agents.find(a => a.pane_id === d.paneId))
+    // Same pane id only if nothing says it is another agent (pane ids survive a restart).
+    || (d.paneId && agents.find(a => a.pane_id === d.paneId
+      && !(d.agentSession && a.agent_session && a.agent_session.value && a.agent_session.value !== d.agentSession)))
     || null;
 }
 
 function observe(prev, agent, now) {
   const d = { ...prev };
   if (agent) {
+    // A new terminal means herdr or the agent was restarted: its counter starts over.
+    const newTerminal = !!(prev.terminalId && agent.terminal_id && agent.terminal_id !== prev.terminalId);
     d.missingSince = null;
     if (agent.terminal_id) d.terminalId = agent.terminal_id;
     if (agent.pane_id) d.paneId = agent.pane_id;
     if (agent.workspace_id) d.wsId = agent.workspace_id;
     if (agent.agent_session && agent.agent_session.value) d.agentSession = agent.agent_session.value;
     const seq = agent.state_change_seq ?? null;
-    const woke = d.lastSeq !== null && seq !== null && seq !== d.lastSeq;
-    if (agent.agent_status === 'working' || woke) d.lastLifeAt = now;
+    const woke = !newTerminal && d.lastSeq !== null && seq !== null && seq > d.lastSeq;
+    if (agent.agent_status === 'working' || woke) {
+      d.lastLifeAt = now;
+      d.lastActiveAt = now;
+    } else if (newTerminal) {
+      d.lastLifeAt = now; // a restarted agent gets a fresh interval, but this is not activity
+    }
     d.lastSeq = seq;
     d.blockedSince = agent.agent_status === 'blocked' ? (d.blockedSince ?? now) : null;
   } else {
@@ -94,20 +103,25 @@ function evaluate(prev, agent, now, settings, startedAt) {
   if (d.alert) {
     // Recovery needs the agent in sight: a window that just vanished is not "fixed".
     if (!agent) return { duty: d, event: null };
+    // "Stopped waking" ends only with real activity seen after the alert began.
+    if (d.alert.kind === 'sleep' && !(d.lastActiveAt > d.alert.since)) {
+      d.alert = { ...d.alert, text: `не просыпался ${fmtDur(now - (d.lastActiveAt || d.alert.since))}` };
+      return { duty: d, event: null };
+    }
     d.alert = null;
     return { duty: d, event: 'recover' };
   }
   return { duty: d, event: null };
 }
 
-function applyOk(d, now) { return { ...d, lastLifeAt: now, fail: null }; }
+function applyOk(d, now) { return { ...d, lastLifeAt: now, lastActiveAt: now, fail: null }; }
 
 function applyFail(d, now, reason) {
   const text = String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 70) || 'агент сообщил о беде';
   return { ...d, fail: { reason: text, at: now } };
 }
 
-function applyReset(d, now) { return { ...d, fail: null, alert: null, lastLifeAt: now, blockedSince: null, missingSince: null }; }
+function applyReset(d, now) { return { ...d, fail: null, alert: null, lastLifeAt: now, lastActiveAt: now, blockedSince: null, missingSince: null }; }
 
 function dutyToken(d) {
   return d.alert ? `▲ ${d.alert.text}` : `◆ дежурит · ${fmtDur(d.everyMs)}`;
