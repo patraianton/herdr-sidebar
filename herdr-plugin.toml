@@ -1,0 +1,48 @@
+id = "anton.sidebar"
+name = "Категории и дежурства"
+version = "0.1.0"
+min_herdr_version = "0.9.1"
+description = "Свои категории в боковой панели Spaces, вынос копий проекта из группы, пометка и проверка дежурных агентов"
+platforms = ["windows", "linux", "macos"]
+
+[[startup]]
+command = ["node", "src/ensure.js"]
+
+[[events]]
+on = "workspace.created"
+command = ["node", "src/ensure.js"]
+
+[[events]]
+on = "workspace.closed"
+command = ["node", "src/ensure.js"]
+
+[[events]]
+on = "workspace.moved"
+command = ["node", "src/ensure.js"]
+
+[[events]]
+on = "workspace.reordered"
+command = ["node", "src/ensure.js"]
+
+[[events]]
+on = "worktree.created"
+command = ["node", "src/ensure.js"]
+
+[[actions]]
+id = "open"
+title = "Категории и дежурства"
+contexts = ["workspace"]
+command = ["node", "src/cli.js", "open"]
+
+[[actions]]
+id = "ensure"
+title = "Запустить помощника «Категорий и дежурств»"
+command = ["node", "src/ensure.js"]
+
+[[panes]]
+id = "panel"
+title = "Категории и дежурства"
+placement = "popup"
+width = "80%"
+height = "80%"
+command = ["node", "src/ui.js"]
