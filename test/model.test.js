@@ -63,17 +63,40 @@ test('buildUnits excludes header workspaces', () => {
 
 test('desiredOrder is null without categories', () => {
   const u = model.buildUnits(world(), PATHS, new Set());
-  assert.equal(model.desiredOrder(emptyState(), u, ['w1', 'w2', 'w3', 'w4', 'w5'], {}), null);
+  assert.equal(model.desiredOrder(emptyState(), u, ['w1', 'w2', 'w3', 'w4', 'w5']), null);
 });
 
-test('desiredOrder: header, members, none header, the rest in live order', () => {
+test('desiredOrder: category members in order, then the rest in live order', () => {
   const s = emptyState();
   s.categories = [{ id: 'c1', name: 'A', units: ['ws:w3', AP] }, { id: 'c2', name: 'B', units: [] }];
-  const list = withHeaders(world(), [['h0', model.NONE_LABEL], ['h1', '━━ A ━━'], ['h2', '━━ B ━━']]);
-  const headers = { c1: 'h1', c2: 'h2', __none: 'h0' };
-  const u = model.buildUnits(list, PATHS, new Set(['h0', 'h1', 'h2']));
-  const live = list.map(w => w.workspace_id);
-  assert.deepEqual(model.desiredOrder(s, u, live, headers), ['h1', 'w3', 'w2', 'w4', 'h2', 'h0', 'w1', 'w5']);
+  const u = model.buildUnits(world(), PATHS, new Set());
+  assert.deepEqual(model.desiredOrder(s, u, ['w1', 'w2', 'w3', 'w4', 'w5']), ['w3', 'w2', 'w4', 'w1', 'w5']);
+});
+
+// ---- category titles drawn as a row of the first project ----
+
+test('sectionTokens: the first project of each category and of the rest carries the title', () => {
+  const s = emptyState();
+  s.categories = [{ id: 'c1', name: 'Реклама', units: ['ws:w3', 'ws:w1'] }, { id: 'c2', name: 'Пусто', units: [] }, { id: 'c3', name: 'Код', units: [AP] }];
+  const u = model.buildUnits(world(), PATHS, new Set());
+  assert.deepEqual(model.sectionTokens(s, u, ['w3', 'w1', 'w2', 'w4', 'w5']), {
+    w3: '━━ РЕКЛАМА ━━', w2: '━━ КОД ━━', w5: model.NONE_LABEL,
+  });
+});
+
+test('sectionTokens: a group carries the title on its parent even when a child comes first', () => {
+  const s = emptyState();
+  s.categories = [{ id: 'c1', name: 'Код', units: [AP] }];
+  const u = model.buildUnits(world(), PATHS, new Set());
+  assert.equal(model.sectionTokens(s, u, ['w4', 'w2', 'w1', 'w3', 'w5']).w2, '━━ КОД ━━');
+});
+
+test('sectionTokens: no categories, no titles; nothing left over, no "none" title', () => {
+  const u = model.buildUnits(world(), PATHS, new Set());
+  assert.deepEqual(model.sectionTokens(emptyState(), u, ['w1', 'w2', 'w3', 'w4', 'w5']), {});
+  const s = emptyState();
+  s.categories = [{ id: 'c1', name: 'Все', units: ['ws:w1', AP, 'ws:w3', 'ws:w5'] }];
+  assert.deepEqual(model.sectionTokens(s, u, ['w1', 'w2', 'w4', 'w3', 'w5']), { w1: '━━ ВСЕ ━━' });
 });
 
 test('reconcile re-binds a closed and reopened workspace by folder', () => {
@@ -131,27 +154,27 @@ test('reconcile keeps a dead key for a while and prunes it after 30 days', () =>
 });
 
 // ---- learning from native drags ----
+// X: [w1, w6]   Y: [w3]   the rest: autopase group (w2 + w4), w5.
+// The sidebar shows "━━ X ━━" on w1, "━━ Y ━━" on w3 and the "none" title on w2.
 
+const LPATHS = { ...PATHS, w6: 'C:\p\notes' };
 function setup() {
   const s = emptyState();
-  s.categories = [{ id: 'cX', name: 'X', units: ['ws:w1'] }, { id: 'cY', name: 'Y', units: ['ws:w3'] }];
-  const headers = { cX: 'hX', cY: 'hY', __none: 'h0' };
+  s.categories = [{ id: 'cX', name: 'X', units: ['ws:w1', 'ws:w6'] }, { id: 'cY', name: 'Y', units: ['ws:w3'] }];
   const list = [
-    ws('hX', '━━ X ━━'), ws('w1', 'fix-pc'),
-    ws('hY', '━━ Y ━━'), ws('w3', 'blog'),
-    ws('h0', model.NONE_LABEL), ws('w2', 'autopase', wt('autopase', false, 'C:\\p\\autopase')),
-    ws('w4', 'cookie', wt('autopase', true, 'C:\\wt\\cookie')), ws('w5', 'lonely', wt('lonely', true, 'C:\\wt\\lonely')),
+    ws('w1', 'fix-pc'), ws('w6', 'notes'), ws('w3', 'blog'),
+    ws('w2', 'autopase', wt('autopase', false, 'C:\p\autopase')), ws('w4', 'cookie', wt('autopase', true, 'C:\wt\cookie')),
+    ws('w5', 'lonely', wt('lonely', true, 'C:\wt\lonely')),
   ];
   s.lastApplied = list.map(w => w.workspace_id);
   const byId = Object.fromEntries(list.map(w => [w.workspace_id, w]));
-  const units = model.buildUnits(list, PATHS, new Set(['hX', 'hY', 'h0']));
-  return { s, headers, byId, units };
+  return { s, byId };
 }
-const learn = ({ s, headers, byId }, order) => {
-  const list = order.map(id => byId[id]);
-  const units = model.buildUnits(list, PATHS, new Set(['hX', 'hY', 'h0']));
-  return model.learnFromOrder(s, units, order, headers);
+const learn = ({ s, byId }, order, hints) => {
+  const units = model.buildUnits(order.map(id => byId[id]), LPATHS, new Set());
+  return model.learnFromOrder(s, units, order, hints);
 };
+const cats = r => r.state.categories.map(c => c.units);
 
 test('learn: nothing moved', () => {
   const x = setup();
@@ -163,64 +186,69 @@ test('learn: nothing moved', () => {
 test('learn: new and closed workspaces are not a user move', () => {
   const x = setup();
   x.byId.w9 = ws('w9', 'new');
-  const r = learn(x, ['hX', 'hY', 'w3', 'h0', 'w2', 'w4', 'w5', 'w9']);
+  const r = learn(x, ['w1', 'w3', 'w2', 'w4', 'w5', 'w9']);
   assert.deepEqual(r.moved, []);
 });
 
-test('learn: a project dropped under another header changes category', () => {
+test('learn: a project dropped after a project of another category joins that category', () => {
   const x = setup();
-  const r = learn(x, ['hX', 'hY', 'w3', 'w1', 'h0', 'w2', 'w4', 'w5']);
+  const r = learn(x, ['w6', 'w3', 'w1', 'w2', 'w4', 'w5']);
   assert.deepEqual(r.moved, ['ws:w1']);
-  assert.equal(r.headerMoved, false);
-  assert.deepEqual(r.state.categories.map(c => c.units), [[], ['ws:w3', 'ws:w1']]);
+  assert.deepEqual(cats(r), [['ws:w6'], ['ws:w3', 'ws:w1']]);
 });
 
-test('learn: tie prefers moving the unit, not the header', () => {
+test('learn: dropped right above the first project of a category, it lands above that title: the category above', () => {
   const x = setup();
-  // X: [w1] ; Y: [w3]. Drag w1 to just below hY -> [hX, hY, w1, w3]
-  const r = learn(x, ['hX', 'hY', 'w1', 'w3', 'h0', 'w2', 'w4', 'w5']);
-  assert.equal(r.headerMoved, false);
-  assert.deepEqual(r.state.categories.map(c => c.units), [[], ['ws:w1', 'ws:w3']]);
+  const r = learn(x, ['w1', 'w6', 'w5', 'w3', 'w2', 'w4']);
+  assert.deepEqual(r.moved, ['ws:w5']);
+  assert.deepEqual(cats(r), [['ws:w1', 'ws:w6', 'ws:w5'], ['ws:w3']]);
 });
 
-test('learn: a group dragged from "none" into a category', () => {
+test('learn: dropped at the very top joins the first category at its top', () => {
   const x = setup();
-  const r = learn(x, ['hX', 'w2', 'w4', 'w1', 'hY', 'w3', 'h0', 'w5']);
+  const r = learn(x, ['w3', 'w1', 'w6', 'w2', 'w4', 'w5']);
+  assert.deepEqual(cats(r), [['ws:w3', 'ws:w1', 'ws:w6'], []]);
+});
+
+test('learn: a group dragged from the rest into a category', () => {
+  const x = setup();
+  const r = learn(x, ['w1', 'w2', 'w4', 'w6', 'w3', 'w5']);
   assert.deepEqual(r.moved, [AP]);
-  assert.deepEqual(r.state.categories[0].units, [AP, 'ws:w1']);
+  assert.deepEqual(cats(r), [['ws:w1', AP, 'ws:w6'], ['ws:w3']]);
 });
 
-test('learn: dragged above the first header goes to the top of the first category', () => {
+test('learn: dropped among the rest becomes uncategorized', () => {
   const x = setup();
-  const r = learn(x, ['w3', 'hX', 'w1', 'hY', 'h0', 'w2', 'w4', 'w5']);
-  assert.deepEqual(r.state.categories.map(c => c.units), [['ws:w3', 'ws:w1'], []]);
+  const r = learn(x, ['w1', 'w3', 'w2', 'w4', 'w5', 'w6']);
+  assert.deepEqual(cats(r), [['ws:w1'], ['ws:w3']]);
 });
 
-test('learn: dragged into "none" becomes uncategorized', () => {
-  const x = setup();
-  const r = learn(x, ['hX', 'hY', 'w3', 'h0', 'w1', 'w2', 'w4', 'w5']);
-  assert.deepEqual(r.state.categories.map(c => c.units), [[], ['ws:w3']]);
+test('learn: the moved workspace reported by herdr decides a swap across a category border', () => {
+  const order = ['w1', 'w3', 'w6', 'w2', 'w4', 'w5'];
+  assert.deepEqual(cats(learn(setup(), order, ['w3'])), [['ws:w1', 'ws:w3', 'ws:w6'], []]);
+  assert.deepEqual(cats(learn(setup(), order, ['w6'])), [['ws:w1'], ['ws:w3', 'ws:w6']]);
 });
 
-test('learn: a dragged header is reported and nothing is learned', () => {
+test('learn: a reported move of a group member counts for the whole group', () => {
   const x = setup();
-  const r = learn(x, ['hY', 'w3', 'hX', 'w1', 'h0', 'w2', 'w4', 'w5']);
-  assert.equal(r.headerMoved, true);
-  assert.equal(r.state, x.s);
+  const r = learn(x, ['w1', 'w6', 'w2', 'w4', 'w3', 'w5'], ['w2', 'w4']);
+  assert.deepEqual(r.moved, [AP]);
+  assert.deepEqual(cats(r), [['ws:w1', 'ws:w6', AP], ['ws:w3']]);
 });
 
 test('learn: reorder inside a category', () => {
   const x = setup();
-  x.s.categories[0].units = ['ws:w1', 'ws:w5'];
-  x.s.lastApplied = ['hX', 'w1', 'w5', 'hY', 'w3', 'h0', 'w2', 'w4'];
-  const r = learn(x, ['hX', 'w5', 'w1', 'hY', 'w3', 'h0', 'w2', 'w4']);
-  assert.deepEqual(r.state.categories[0].units, ['ws:w5', 'ws:w1']);
+  const r = learn(x, ['w6', 'w1', 'w3', 'w2', 'w4', 'w5']);
+  assert.deepEqual(cats(r)[0], ['ws:w6', 'ws:w1']);
 });
 
 test('learn: does nothing without categories or without a previous order', () => {
   const x = setup();
   x.s.lastApplied = null;
   assert.deepEqual(learn(x, ['w1']).moved, []);
+  const y = setup();
+  y.s.categories = [];
+  assert.deepEqual(learn(y, ['w6', 'w1', 'w3', 'w2', 'w4', 'w5']).moved, []);
 });
 
 test('reconcile keeps a workspace that stayed open while cd changed its folder and name', () => {

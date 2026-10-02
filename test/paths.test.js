@@ -28,3 +28,17 @@ test('sessionDir nests by session', () => {
   const d = paths.sessionDir('C:\\state', 'C:\\h\\sessions\\sbplug\\herdr.sock');
   assert.match(d.replace(/\\/g, '/'), /C:\/state\/sessions\/sbplug$/);
 });
+
+test('helperOff: a marker file switches the helper off for one session only', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-off-'));
+  const lab = 'C:/x/herdr/sessions/lab/herdr.sock';
+  assert.equal(paths.helperOff(root, lab), false);
+  fs.mkdirSync(paths.sessionDir(root, lab), { recursive: true });
+  fs.writeFileSync(path.join(paths.sessionDir(root, lab), paths.OFF_MARKER), '');
+  assert.equal(paths.helperOff(root, lab), true);
+  assert.equal(paths.helperOff(root, 'C:/x/herdr/herdr.sock'), false);
+  fs.rmSync(root, { recursive: true, force: true });
+});

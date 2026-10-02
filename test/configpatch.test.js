@@ -33,7 +33,8 @@ test('patch replaces rows, keeps $kran and other content, adds the key binding',
   assert.ok(r.text.includes('\r\n'), 'keeps CRLF');
   const t = r.text;
   assert.ok(t.includes(cp.BEGIN) && t.includes(cp.END));
-  assert.ok(t.includes('starts_with = "━━", fg = "#fabd2f", bold = true'));
+  assert.ok(t.includes('  [{ token = "$section", fg = "#fabd2f", bold = true }],\r\n  ["state_icon", "workspace"],'), 'title row first, then the plain name row');
+  assert.ok(!t.includes('starts_with = "━━"'), 'no title-workspace styling');
   assert.ok(t.includes('[{ token = "$project", dim = true }],'));
   assert.ok(t.includes('token = "$duty"'));
   assert.ok(t.includes('  ["$kran"],'));
@@ -85,3 +86,45 @@ test('table without rows: rows are added under it and removed again', () => {
   assert.ok(r.text.indexOf(cp.BEGIN) < r.text.indexOf('[update]'));
   assert.equal(cp.unpatchConfig(r.text, r), src);
 });
+
+// The live config of an older install: title workspaces were styled by name.
+const OLD_BLOCK = [
+  '[ui.sidebar.spaces]',
+  cp.BEGIN,
+  'rows = [',
+  '  ["state_icon", { token = "workspace", rules = [{ starts_with = "━━", fg = "#fabd2f", bold = true }] }],',
+  '  ["branch", "git_status"],',
+  '  [{ token = "$project", dim = true }],',
+  '  [{ token = "$duty", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }, { starts_with = "◆", fg = "#b8bb26" }] }],',
+  '  ["$kran"],',
+  ']',
+  cp.END,
+  '',
+  '[update]',
+  'channel = "stable"',
+  '',
+].join('\r\n');
+
+test('refresh rewrites an older installed block to the current rows and keeps extra rows', () => {
+  const t = cp.refreshConfig(OLD_BLOCK);
+  assert.ok(t.includes('[{ token = "$section", fg = "#fabd2f", bold = true }]'));
+  assert.ok(!t.includes('starts_with = "━━"'));
+  assert.equal(t.split('["$kran"]').length - 1, 1);
+  assert.equal(t.split('token = "$duty"').length - 1, 1);
+  assert.equal(t.split('["branch", "git_status"]').length - 1, 1);
+  assert.ok(t.includes('[update]\r\nchannel = "stable"'), 'keeps CRLF and the rest');
+  assert.equal(cp.refreshConfig(t), t, 'a second refresh changes nothing');
+});
+
+test('refresh of a fresh install changes nothing, and uninstall after a refresh restores the original', () => {
+  const r = cp.patchConfig(ANTON);
+  assert.equal(cp.refreshConfig(r.text), r.text);
+  const old = r.text.replace(/\[\{ token = "\$section"[^\r\n]*\r\n/, '');
+  assert.notEqual(old, r.text);
+  assert.equal(cp.unpatchConfig(cp.refreshConfig(old), r), ANTON);
+});
+
+test('refresh refuses a config without the plugin block', () => {
+  assert.throws(() => cp.refreshConfig(ANTON), /not installed/);
+});
+

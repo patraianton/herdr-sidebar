@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 'use strict';
 // Background helper, one per herdr session: keeps the Spaces order, publishes
-// the $project/$duty tokens, watches duty agents and serves the window and CLI.
+// the $section/$project/$duty tokens, watches duty agents and serves the window
+// and CLI. Category titles are $section tokens drawn on top of the first project
+// of each category; earlier versions used separate title workspaces, which the
+// helper now closes.
 const fs = require('node:fs');
 const path = require('node:path');
 const { makeHerdr } = require('./herdr');
@@ -18,7 +21,7 @@ const SUBSCRIPTIONS = [
   'workspace.created', 'workspace.closed', 'workspace.moved', 'workspace.reordered', 'workspace.renamed',
   'worktree.created', 'worktree.opened', 'worktree.removed',
 ].map(type => ({ type }));
-const TOKEN_KEYS = ['project', 'duty'];
+const TOKEN_KEYS = ['section', 'project', 'duty'];
 
 function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: subscribeIn, now: clockIn, sendTelegram: sendIn }) {
   const herdr = herdrIn || makeHerdr(socketPath);
@@ -35,7 +38,8 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
   let state = store.loadState(files.state);
   let startedAt = clock();
   let chain = Promise.resolve();
-  const last = { snap: null, units: null, headers: {} };
+  const last = { snap: null, units: null, sections: {} };
+  let dragHints = []; // workspace ids herdr reported as moved by a reorder since the last cycle
   let sub = null;
   let server = null;
   let connected = false;
@@ -104,28 +108,11 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     try { await herdr.closeWorkspace(wsId); return true; } catch (e) { log('closing header failed', wsId, e.message); return false; }
   }
 
-  async function ensureHeaders(snap, h) {
+  // Title workspaces made by the previous version are not needed any more.
+  async function closeOldHeaders(snap, h) {
     let changed = false;
-    const want = state.categories.length
-      ? [...state.categories.map(c => [c.id, model.headerLabel(c.name)]), [model.NONE_ID, model.NONE_LABEL]]
-      : [];
-    const wantIds = new Set(want.map(([id]) => id));
-    for (const [cid, wsId] of Object.entries(h.headers)) {
-      if (!wantIds.has(cid) && await closeHeader(snap, wsId)) changed = true;
-    }
-    for (const wsId of h.orphans) if (await closeHeader(snap, wsId)) changed = true;
-    for (const cid of Object.keys(state.headers)) if (!h.headers[cid] || !wantIds.has(cid)) delete state.headers[cid];
-    if (want.length) fs.mkdirSync(files.headerDir, { recursive: true });
-    for (const [cid, label] of want) {
-      const wsId = state.headers[cid];
-      if (wsId) {
-        if (snap.byId.get(wsId).label !== label) { await herdr.renameWorkspace(wsId, label); changed = true; }
-        continue;
-      }
-      const ws = await herdr.createWorkspace(label, files.headerDir);
-      state.headers[cid] = ws.workspace_id;
-      log('header created', label, ws.workspace_id);
-      changed = true;
+    for (const wsId of h.ids) {
+      if (await closeHeader(snap, wsId)) { log('old title workspace closed', wsId); changed = true; }
     }
     return changed;
   }
@@ -162,19 +149,20 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       }
     }
     let h = liveHeaders(snap);
-    let units = model.buildUnits(snap.workspaces, snap.paths, h.ids);
+    if (h.ids.size && await closeOldHeaders(snap, h)) { snap = await snapshot(); h = liveHeaders(snap); }
+    for (const [cid, wsId] of Object.entries(state.headers)) if (!snap.byId.has(wsId)) delete state.headers[cid];
+    const units = model.buildUnits(snap.workspaces, snap.paths, h.ids); // a title that would not close is not a project
     state = model.reconcile(state, units, now, { continuous: !continuityBroken });
-    const learned = model.learnFromOrder(state, units, snap.order, h.headers);
+    // A drag in the sidebar moves one project (or one worktree group); the
+    // helper's own reorders move many, so they are not hints.
+    const hints = dragHints.filter(ids => new Set(ids.map(id => units.unitOf[id])).size === 1).flat();
+    dragHints = [];
+    const learned = model.learnFromOrder(state, units, snap.order, hints);
     if (learned.moved.length) {
-      log('moved by hand:', learned.moved.join(' '), learned.headerMoved ? '(a header: put back)' : '');
+      log('moved by hand:', learned.moved.join(' '));
       state = learned.state;
     }
-    if (await ensureHeaders(snap, h)) {
-      snap = await snapshot();
-      h = liveHeaders(snap);
-      units = model.buildUnits(snap.workspaces, snap.paths, h.ids);
-    }
-    const desired = now < pauseUntil ? null : model.desiredOrder(state, units, snap.order, h.headers);
+    const desired = now < pauseUntil ? null : model.desiredOrder(state, units, snap.order);
     if (desired && desired.join() !== snap.order.join() && allowMove()) {
       try {
         state.lastApplied = (await herdr.moveBlock(desired)) || desired;
@@ -191,7 +179,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     }
     last.snap = snap;
     last.units = units;
-    last.headers = h.headers;
+    last.sections = model.sectionTokens(state, units, state.lastApplied);
     continuityBroken = false;
     return snap;
   }
@@ -205,6 +193,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       t[k] = v;
       want.set(wsId, t);
     };
+    for (const [wsId, title] of Object.entries(last.sections)) put(wsId, 'section', title);
     for (const [wsId, d] of Object.entries(state.detached)) put(wsId, 'project', `⎇ ${d.parentLabel}`);
     for (const d of Object.values(state.duty)) if (d.wsId) put(d.wsId, 'duty', duty.dutyToken(d));
     return want;
@@ -278,11 +267,20 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     return cycle('tick');
   }
 
+  function noteDrag(msg) {
+    const d = msg && msg.data;
+    if (!d) return;
+    const kind = String(msg.event || d.type || '').replace('.', '_');
+    if (kind === 'workspace_reordered' && Array.isArray(d.workspace_ids) && d.workspace_ids.length) dragHints.push(d.workspace_ids);
+    else if (kind === 'workspace_moved' && d.workspace_id) dragHints.push([d.workspace_id]);
+    if (dragHints.length > 50) dragHints.shift();
+  }
+
   function connectEvents() {
     if (stopping) return;
     sub = subscribe(socketPath, SUBSCRIPTIONS, {
       onReady: () => { connected = true; lostSince = null; log('connected to herdr'); kick('connect', 0); },
-      onEvent: () => kick('event', 1000),
+      onEvent: msg => { noteDrag(msg); kick('event', 1000); },
       onClose: err => {
         const wasConnected = connected;
         connected = false;
@@ -466,14 +464,14 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
         }
         for (const w of snap.workspaces) {
           const t = w.tokens || {};
-          if (t.project != null || t.duty != null) await herdr.setTokens(w.workspace_id, { project: null, duty: null }).catch(() => {});
+          if (TOKEN_KEYS.some(k => t[k] != null)) await herdr.setTokens(w.workspace_id, { section: null, project: null, duty: null }).catch(() => {});
         }
         detachedLeft = Object.keys(state.detached).length;
         store.saveJson(path.join(dir, `state.uninstalled-${new Date().toISOString().slice(0, 10)}.json`), state);
         state = store.emptyState();
         save();
         try { fs.unlinkSync(files.original); } catch {}
-        log('uninstalled: order restored, headers closed, tokens cleared');
+        log('uninstalled: order restored, old title workspaces closed, tokens cleared');
       } catch (e) {
         stopping = false;
         log('uninstall failed', e.message);
@@ -543,6 +541,7 @@ if (require.main === module) {
     process.stderr.write('Помощник запускается из herdr (нет переменных HERDR_*).\n');
     process.exit(2);
   }
+  if (paths.helperOff(stateRoot, socketPath)) process.exit(0);
   const d = createDaemon({ socketPath, dir: paths.sessionDir(stateRoot, socketPath), configDir });
   process.on('uncaughtException', e => { d.log('crash', e && e.stack); process.exit(1); });
   process.on('unhandledRejection', e => d.log('unhandled', e && (e.stack || e.message || e)));

@@ -172,40 +172,56 @@ function categoryOf(state, key) {
   return c ? c.id : null;
 }
 
-// headers: { categoryId | '__none': live header workspace id }
-function desiredOrder(state, units, liveOrder, headers) {
+function desiredOrder(state, units, liveOrder) {
   if (!state.categories.length) return null;
   const out = [];
   const used = new Set();
   const push = id => { if (id && !used.has(id)) { used.add(id); out.push(id); } };
   for (const c of state.categories) {
-    push(headers[c.id]);
     for (const k of c.units) { const u = units.byKey[k]; if (u) u.wsIds.forEach(push); }
   }
-  push(headers[NONE_ID]);
   for (const u of units.units) u.wsIds.forEach(push);
   for (const id of liveOrder) push(id);
   return out;
 }
 
-function displaySeq(order, units, headerTok) {
+function displaySeq(order, units) {
   const seq = [];
   const seen = new Set();
   for (const id of order) {
-    const t = headerTok[id] || units.unitOf[id];
+    const t = units.unitOf[id];
     if (t && !seen.has(t)) { seen.add(t); seq.push(t); }
   }
   return seq;
 }
 
-// Longest common subsequence with weights; tokens are unique in each list.
-function weightedLcs(a, b, weight) {
+// herdr has no title rows of its own: a category title is a $section token
+// drawn as an extra line on top of the first project of the category (on the
+// parent of a worktree group). Returns { wsId: title }.
+function sectionTokens(state, units, order) {
+  const out = {};
+  if (!state.categories.length) return out;
+  const catOf = new Map();
+  for (const c of state.categories) for (const k of c.units) if (!catOf.has(k)) catOf.set(k, c);
+  const done = new Set();
+  for (const key of displaySeq(order, units)) {
+    const c = catOf.get(key);
+    const cid = c ? c.id : NONE_ID;
+    if (done.has(cid)) continue;
+    done.add(cid);
+    out[units.byKey[key].anchorId] = c ? headerLabel(c.name) : NONE_LABEL;
+  }
+  return out;
+}
+
+// Longest common subsequence; tokens are unique in each list.
+function lcs(a, b) {
   const n = a.length;
   const m = b.length;
-  const dp = Array.from({ length: n + 1 }, () => new Float64Array(m + 1));
+  const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
-      dp[i][j] = a[i] === b[j] ? weight(a[i]) + dp[i + 1][j + 1] : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      dp[i][j] = a[i] === b[j] ? 1 + dp[i + 1][j + 1] : Math.max(dp[i + 1][j], dp[i][j + 1]);
     }
   }
   const keep = new Set();
@@ -218,48 +234,53 @@ function weightedLcs(a, b, weight) {
 }
 
 // Compare the live order with the order the helper last applied. Units that
-// left the common order were dragged by a person: they take the category of the
-// nearest header above them. A dragged header is reported and not learned.
-function learnFromOrder(state, units, liveOrder, headers) {
-  const nothing = { state, moved: [], headerMoved: false };
+// left the common order were dragged by a person. herdr reports which
+// workspace a drag moved (hintIds); such units count as moved for sure, which
+// settles swaps that the order alone cannot. A moved unit joins the category of
+// the nearest project above it (the title sits on top of a category's first
+// project, so a drop right above that project lands under the previous
+// category); dropped at the very top, it joins the category below.
+function learnFromOrder(state, units, liveOrder, hintIds = []) {
+  const nothing = { state, moved: [] };
   if (!state.lastApplied || !state.categories.length) return nothing;
-  const headerTok = {};
-  for (const [cid, wsId] of Object.entries(headers)) if (wsId) headerTok[wsId] = `h:${cid}`;
-  const liveSeq = displaySeq(liveOrder, units, headerTok);
-  const prevSeq = displaySeq(state.lastApplied, units, headerTok);
+  const liveSeq = displaySeq(liveOrder, units);
+  const prevSeq = displaySeq(state.lastApplied, units);
   const inPrev = new Set(prevSeq);
   const inLive = new Set(liveSeq);
   const a = prevSeq.filter(t => inLive.has(t));
   const b = liveSeq.filter(t => inPrev.has(t));
   if (a.join('\n') === b.join('\n')) return nothing;
-  const keep = weightedLcs(a, b, t => (t.startsWith('h:') ? 1000 : 1));
+  const hinted = new Set(hintIds.map(id => units.unitOf[id]).filter(t => t && inPrev.has(t)));
+  const keep = lcs(a.filter(t => !hinted.has(t)), b.filter(t => !hinted.has(t)));
   const moved = b.filter(t => !keep.has(t));
-  if (moved.some(t => t.startsWith('h:'))) return { state, moved, headerMoved: true };
+  if (!moved.length) return nothing;
 
   const s = clone(state);
   const movedSet = new Set(moved);
+  const catOf = new Map();
+  for (const c of s.categories) for (const k of c.units) if (!catOf.has(k)) catOf.set(k, c.id);
   for (const c of s.categories) c.units = c.units.filter(k => !movedSet.has(k));
   const catById = new Map(s.categories.map(c => [c.id, c]));
-  let cur = null;
+  const firstKept = liveSeq.find(t => !movedSet.has(t));
+  let cur = firstKept === undefined ? s.categories[0].id : (catOf.get(firstKept) || NONE_ID);
   const last = {};
   for (const t of liveSeq) {
-    if (t.startsWith('h:')) { cur = t.slice(2); continue; }
-    const target = cur === null ? s.categories[0].id : cur;
-    const c = catById.get(target);
-    if (!c) continue; // under "none": uncategorized
-    if (movedSet.has(t)) {
-      const idx = last[target] ? c.units.indexOf(last[target]) + 1 : 0;
-      c.units.splice(idx, 0, t);
-      last[target] = t;
-    } else if (c.units.includes(t)) {
-      last[target] = t;
+    if (!movedSet.has(t)) {
+      cur = catOf.get(t) || NONE_ID;
+      if (cur !== NONE_ID) last[cur] = t;
+      continue;
     }
+    if (cur === NONE_ID) continue; // dropped among the rest: uncategorized
+    const c = catById.get(cur);
+    const idx = last[cur] ? c.units.indexOf(last[cur]) + 1 : 0;
+    c.units.splice(idx, 0, t);
+    last[cur] = t;
   }
-  return { state: s, moved, headerMoved: false };
+  return { state: s, moved };
 }
 
 module.exports = {
   NONE_ID, NONE_LABEL, headerLabel, isHeaderLabel,
-  buildUnits, reconcile, categoryOf, desiredOrder, learnFromOrder, staleDetached,
-  _internal: { displaySeq, weightedLcs },
+  buildUnits, reconcile, categoryOf, desiredOrder, sectionTokens, learnFromOrder, staleDetached,
+  _internal: { displaySeq, lcs },
 };

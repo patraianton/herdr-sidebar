@@ -115,11 +115,31 @@ function removeShims() {
   for (const f of ['herdr-duty.cmd', 'herdr-duty']) { try { fs.unlinkSync(path.join(BIN_DIR, f)); } catch {} }
 }
 
+// Already installed: bring the sidebar rows up to this version.
+function refreshInstall(cfg) {
+  const text = fs.readFileSync(cfg, 'utf8');
+  let next;
+  try { next = configpatch.refreshConfig(text); } catch (e) { fail(`Не нашёл в ${cfg} строк плагина: ${e.message}`); }
+  if (next === text) { say('Уже установлено, настройки herdr свежие.'); return; }
+  const backup = `${cfg}.bak-${today()}-sidebar-refresh`;
+  if (!fs.existsSync(backup)) fs.copyFileSync(cfg, backup);
+  fs.writeFileSync(cfg, next);
+  const check = herdrRun(['config', 'check']);
+  if (check.status !== 0) {
+    fs.writeFileSync(cfg, text);
+    fail(`herdr не принял новые настройки, файл возвращён как был:\n${check.stdout || ''}${check.stderr || ''}`);
+  }
+  writeShims();
+  const rl = herdrRun(['server', 'reload-config']);
+  say(`Строки боковой панели обновлены (копия: ${backup}).`);
+  say(rl.status === 0 ? 'herdr перечитал настройки.' : `herdr не перечитал настройки: ${(rl.stderr || rl.stdout || '').trim()}`);
+}
+
 function install() {
   const cfg = configFile();
   const cfgDir = pluginConfigDir();
   const instFile = path.join(cfgDir, 'install.json');
-  if (store.loadJson(instFile, null)) fail(`Уже установлено (${instFile}). Для повторной установки сначала: uninstall.`);
+  if (store.loadJson(instFile, null)) return refreshInstall(cfg);
   const exists = fs.existsSync(cfg);
   const text = exists ? fs.readFileSync(cfg, 'utf8') : '';
   const backup = `${cfg}.bak-${today()}-sidebar`;
@@ -154,7 +174,7 @@ async function uninstall() {
     fail(`Порядок вернуть не удалось: ${e.message}
 Настройки herdr и плагин не тронуты. Повторите позже.`);
   }
-  say('Порядок рабочих мест возвращён, заголовки закрыты, пометки сняты.');
+  say('Порядок рабочих мест возвращён, названия категорий и пометки сняты.');
   if (r && r.detachedLeft) say(`Вынесенных копий осталось: ${r.detachedLeft} — они остаются отдельными рабочими местами.`);
   const cfgDir = pluginConfigDir();
   const instFile = path.join(cfgDir, 'install.json');

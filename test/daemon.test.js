@@ -44,6 +44,9 @@ function fakeHerdr(workspaces, panes, agents = []) {
       for (const [k, v] of Object.entries(tokens)) { if (v == null) delete w.tokens[k]; else w.tokens[k] = v; }
     },
     notify: async (title, body) => { calls.push(['notify', title, body]); },
+    panesRef: panes,
+    listWorkspacesSync: id => workspaces.find(w => w.workspace_id === id),
+    reorder: ids => { const by = new Map(workspaces.map(w => [w.workspace_id, w])); workspaces.splice(0, workspaces.length, ...ids.map(id => by.get(id))); },
   };
   return h;
 }
@@ -154,5 +157,65 @@ test('a failed uninstall leaves the helper working and the categories in place',
   await assert.rejects(x.d.handle('uninstall', {}), /move_block boom/);
   assert.equal(x.d._test.stopping(), false);
   assert.equal(x.d._test.state().categories.length, 1);
+  x.cleanup();
+});
+
+test('category titles are drawn as tokens on the first projects; no title workspaces are made', async () => {
+  const x = setup({
+    workspaces: [plain('w1', 'a'), plain('w2', 'b'), plain('w3', 'c')],
+    panes: [pane('w1', 'C:/p/a'), pane('w2', 'C:/p/b'), pane('w3', 'C:/p/c')],
+    state: { categories: [{ id: 'c1', name: 'Реклама', units: ['ws:w2'] }] },
+  });
+  x.d._test.markConnected();
+  await x.d._test.cycle('t');
+  assert.ok(!x.herdr.calls.some(c => c[0] === 'create'), 'no workspace created');
+  assert.deepEqual(x.herdr.calls.find(c => c[0] === 'move'), ['move', 'w2,w1,w3']);
+  const tok = id => (x.herdr.listWorkspacesSync(id).tokens || {}).section;
+  assert.equal(tok('w2'), '━━ РЕКЛАМА ━━');
+  assert.equal(tok('w1'), '━━ БЕЗ КАТЕГОРИИ ━━');
+  assert.equal(tok('w3'), undefined);
+  x.cleanup();
+});
+
+test('title workspaces left by the previous version are closed, foreign look-alikes are not', async () => {
+  const x = setup({
+    workspaces: [plain('h1', '━━ РЕКЛАМА ━━'), plain('w1', 'a'), plain('f1', '━━ ЧУЖОЕ ━━')],
+    panes: [],
+    state: { headers: { c1: 'h1' }, categories: [{ id: 'c1', name: 'Реклама', units: ['ws:w1'] }] },
+  });
+  x.herdr.panesRef.push(pane('h1', path.join(x.dir, 'header')), pane('w1', 'C:/p/a'), pane('f1', 'C:/p/other'));
+  x.d._test.markConnected();
+  await x.d._test.cycle('t');
+  assert.deepEqual(x.herdr.calls.filter(c => c[0] === 'close'), [['close', 'h1']]);
+  assert.deepEqual(x.d._test.state().headers, {});
+  x.cleanup();
+});
+
+test('a drag reported by herdr decides which project moved across a category border', async () => {
+  const x = setup({
+    workspaces: [plain('w1', 'a'), plain('w6', 'n'), plain('w3', 'c')],
+    panes: [pane('w1', 'C:/p/a'), pane('w6', 'C:/p/n'), pane('w3', 'C:/p/c')],
+    state: { categories: [{ id: 'cX', name: 'X', units: ['ws:w1', 'ws:w6'] }, { id: 'cY', name: 'Y', units: ['ws:w3'] }] },
+  });
+  x.d._test.markConnected();
+  await x.d._test.cycle('t');
+  x.d._test.connectEvents();
+  x.herdr.reorder(['w1', 'w3', 'w6']);
+  x.sub.last.onEvent({ event: 'workspace_reordered', data: { type: 'workspace_reordered', workspace_ids: ['w3'] } });
+  await x.d._test.cycle('t2');
+  assert.deepEqual(x.d._test.state().categories.map(c => c.units), [['ws:w1', 'ws:w3', 'ws:w6'], []]);
+  x.cleanup();
+});
+
+test('uninstall clears the title tokens', async () => {
+  const x = setup({
+    workspaces: [plain('w1', 'a'), plain('w2', 'b')],
+    panes: [pane('w1', 'C:/p/a'), pane('w2', 'C:/p/b')],
+    state: { categories: [{ id: 'c1', name: 'A', units: ['ws:w2'] }] },
+  });
+  x.d._test.markConnected();
+  await x.d._test.cycle('t');
+  await x.d.handle('uninstall', {});
+  for (const id of ['w1', 'w2']) assert.equal((x.herdr.listWorkspacesSync(id).tokens || {}).section, undefined);
   x.cleanup();
 });

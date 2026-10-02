@@ -6,8 +6,11 @@ const END = '# <<< anton.sidebar';
 const KEYS_BEGIN = '# >>> anton.sidebar keys';
 const KEYS_END = '# <<< anton.sidebar keys';
 
+// The first row is the category title: only the first project of a category
+// reports $section, and a row with no value is not drawn at all.
 const STYLED_ROWS = [
-  '  ["state_icon", { token = "workspace", rules = [{ starts_with = "━━", fg = "#fabd2f", bold = true }] }],',
+  '  [{ token = "$section", fg = "#fabd2f", bold = true }],',
+  '  ["state_icon", "workspace"],',
   '  ["branch", "git_status"],',
   '  [{ token = "$project", dim = true }],',
   '  [{ token = "$duty", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }, { starts_with = "◆", fg = "#b8bb26" }] }],',
@@ -21,7 +24,14 @@ const KEYS_BLOCK = [
   'description = "категории и дежурства"',
   KEYS_END,
 ];
+const squash = s => s.replace(/\s+/g, '');
 const DEFAULT_ROWS = new Set(['["state_icon","workspace"]', '["branch","git_status"]']);
+// Rows written by this or an earlier version of the plugin; a refresh drops them.
+const OUR_ROWS = new Set([
+  ...DEFAULT_ROWS,
+  ...STYLED_ROWS.map(r => squash(r).replace(/,$/, '')),
+  squash('["state_icon", { token = "workspace", rules = [{ starts_with = "━━", fg = "#fabd2f", bold = true }] }]'),
+]);
 const TABLE_RE = /^\s*\[\[?\s*[A-Za-z0-9_."-]+(\s*\.\s*[A-Za-z0-9_."-]+)*\s*\]\]?\s*(#.*)?$/;
 
 function splitLines(text) {
@@ -106,7 +116,7 @@ function topLevelElements(rowsText) {
 }
 
 function extraRows(rowsText) {
-  return topLevelElements(rowsText).filter(e => !DEFAULT_ROWS.has(e.replace(/\s+/g, '')));
+  return topLevelElements(rowsText).filter(e => !DEFAULT_ROWS.has(squash(e)));
 }
 
 function rowsBlock(extra) {
@@ -136,6 +146,18 @@ function patchConfig(text) {
   return { text: lines.join(eol), originalRows, hadTable };
 }
 
+// Rewrite the installed rows block to the current rows, keeping rows the
+// person added inside it. Uninstall still restores the rows saved at install.
+function refreshConfig(text) {
+  const { eol, lines } = splitLines(text);
+  const b = lines.findIndex(l => l.trim() === BEGIN);
+  const e = lines.findIndex(l => l.trim() === END);
+  if (b < 0 || e <= b) throw new Error('not installed');
+  const extra = topLevelElements(lines.slice(b + 1, e).join('\n')).filter(x => !OUR_ROWS.has(squash(x)));
+  lines.splice(b, e - b + 1, ...rowsBlock(extra));
+  return lines.join(eol);
+}
+
 function unpatchConfig(text, { originalRows, hadTable }) {
   const { eol, lines } = splitLines(text);
   const kb = lines.findIndex(l => l.trim() === KEYS_BEGIN);
@@ -151,4 +173,4 @@ function unpatchConfig(text, { originalRows, hadTable }) {
   return lines.join(eol);
 }
 
-module.exports = { BEGIN, END, KEYS_BEGIN, KEYS_END, patchConfig, unpatchConfig, _internal: { topLevelElements, findRows } };
+module.exports = { BEGIN, END, KEYS_BEGIN, KEYS_END, patchConfig, refreshConfig, unpatchConfig, _internal: { topLevelElements, findRows } };

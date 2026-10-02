@@ -22,6 +22,7 @@ async function ensureDaemon() {
 
 if (require.main === module) {
   if (!process.env.HERDR_SOCKET_PATH || !process.env.HERDR_PLUGIN_STATE_DIR) process.exit(0);
+  if (paths.helperOff(process.env.HERDR_PLUGIN_STATE_DIR, process.env.HERDR_SOCKET_PATH)) process.exit(0);
   ensureDaemon().then(() => process.exit(0), () => process.exit(0));
 }
 

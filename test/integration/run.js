@@ -22,6 +22,8 @@ const PIPE = paths.daemonPipe(SOCK);
 const STATE_DIR = path.join(LAB, 'state');
 const CONFIG_DIR = path.join(LAB, 'config');
 const SESSION_DIR = paths.sessionDir(STATE_DIR, SOCK);
+// The plugin is linked for every session: keep the real helper out of this one.
+const REAL_SESSION_DIR = paths.sessionDir(path.join(process.env.LOCALAPPDATA, 'herdr', 'plugins', 'anton.sidebar'), SOCK);
 
 const env = { ...process.env, HERDR_CONFIG_PATH: path.join(LAB, 'herdr-config.toml') };
 for (const k of Object.keys(env)) if (k.startsWith('HERDR_') && !['HERDR_BIN_PATH', 'HERDR_CONFIG_PATH'].includes(k)) delete env[k];
@@ -98,6 +100,8 @@ async function main() {
   git(repo, 'add', '.');
   git(repo, '-c', 'user.email=lab@example.invalid', '-c', 'user.name=lab', 'commit', '-q', '-m', 'init');
 
+  fs.mkdirSync(REAL_SESSION_DIR, { recursive: true });
+  fs.writeFileSync(path.join(REAL_SESSION_DIR, paths.OFF_MARKER), '');
   await startServer();
   ok('isolated session started');
 
@@ -118,35 +122,40 @@ async function main() {
     assert(now.join('|') === startOrder.join('|'), `order changed: ${now.join(', ')}`);
     assert(fs.existsSync(path.join(SESSION_DIR, 'original.json')), 'original.json missing');
   });
+  // The real helper would use the real settings and send real Telegram messages.
+  if (fs.existsSync(path.join(REAL_SESSION_DIR, 'daemon.log'))) throw new Error('the real helper started in the test session; stopping');
 
   let catR;
   let catL;
-  await step('two categories create three headers on top', async () => {
+  const sectionOf = async label => ((byLabel(await list(), label) || {}).tokens || {}).section || '';
+  await step('two categories add no workspaces of their own', async () => {
     await helper('category.create', { name: 'Реклама' });
     await helper('category.create', { name: 'Личное' });
     const v = await helper('view');
     catR = v.categories[0].id;
     catL = v.categories[1].id;
-    const order = await waitFor('headers', async () => {
-      const l = await labelsInOrder();
-      return l.slice(0, 3).join('|') === '━━ РЕКЛАМА ━━|━━ ЛИЧНОЕ ━━|━━ БЕЗ КАТЕГОРИИ ━━' ? l : null;
-    });
-    assert(order.length === startOrder.length + 3, `unexpected count ${order.length}`);
+    await sleep(3000);
+    const l = await labelsInOrder();
+    assert(l.length === startOrder.length, `unexpected count ${l.length}`);
+    assert(!l.some(x => x.startsWith('━━')), `title workspace made: ${l.join(', ')}`);
   });
 
   const repoKey = async () => {
     const w = byLabel(await list(), 'repoA');
     return `repo:${paths.normPath(w.worktree.repo_key)}`;
   };
-  await step('moving projects into categories gives the exact order', async () => {
+  await step('moving projects into categories gives the exact order and titles on the first projects', async () => {
     const p1 = byLabel(await list(), 'plain1').workspace_id;
     await helper('unit.move', { key: `ws:${p1}`, catId: catR, index: 0 });
     await helper('unit.move', { key: await repoKey(), catId: catL, index: 0 });
-    const want = ['━━ РЕКЛАМА ━━', 'plain1', '━━ ЛИЧНОЕ ━━', 'repoA', 'wt1', 'wt2', '━━ БЕЗ КАТЕГОРИИ ━━', 'plain2'];
+    const want = ['plain1', 'repoA', 'wt1', 'wt2', 'plain2'];
     await waitFor(`order ${want.join(', ')}`, async () => (await labelsInOrder()).join('|') === want.join('|'));
+    await waitFor('titles', async () => await sectionOf('plain1') === '━━ РЕКЛАМА ━━'
+      && await sectionOf('repoA') === '━━ ЛИЧНОЕ ━━' && await sectionOf('plain2') === '━━ БЕЗ КАТЕГОРИИ ━━'
+      && await sectionOf('wt1') === '' && await sectionOf('wt2') === '');
   });
 
-  await step('a native drag under a header is learned', async () => {
+  await step('a native drag to the top is learned and the title moves with it', async () => {
     const ws = await list();
     await api('workspace.move_block', { workspace_ids: [byLabel(ws, 'plain2').workspace_id], before_workspace_id: byLabel(ws, 'plain1').workspace_id });
     await waitFor('learned', async () => {
@@ -154,29 +163,20 @@ async function main() {
       return v.categories[0].units.map(u => u.label).join('|') === 'plain2|plain1';
     });
     const l = await labelsInOrder();
-    assert(l.slice(0, 3).join('|') === '━━ РЕКЛАМА ━━|plain2|plain1', `order ${l.join(', ')}`);
+    assert(l.slice(0, 2).join('|') === 'plain2|plain1', `order ${l.join(', ')}`);
+    await waitFor('title moved', async () => await sectionOf('plain2') === '━━ РЕКЛАМА ━━' && await sectionOf('plain1') === '');
   });
 
-  await step('a dragged header is put back', async () => {
-    const ws = await list();
-    await api('workspace.move_block', { workspace_ids: [byLabel(ws, '━━ ЛИЧНОЕ ━━').workspace_id], before_workspace_id: byLabel(ws, '━━ РЕКЛАМА ━━').workspace_id });
-    await waitFor('restored', async () => (await labelsInOrder())[0] === '━━ РЕКЛАМА ━━');
-    const v = await helper('view');
-    assert(v.categories[0].name === 'Реклама', 'category order changed');
+  await step('a title workspace left by the previous version is closed', async () => {
+    const dir = path.join(SESSION_DIR, 'header');
+    fs.mkdirSync(dir, { recursive: true });
+    h('workspace', 'create', '--cwd', dir, '--label', '━━ СТАРОЕ ━━', '--no-focus');
+    await waitFor('closed', async () => !(await labelsInOrder()).includes('━━ СТАРОЕ ━━'));
   });
 
-  await step('a header closed by hand comes back', async () => {
-    const id = byLabel(await list(), '━━ ЛИЧНОЕ ━━').workspace_id;
-    h('workspace', 'close', id);
-    await waitFor('recreated', async () => {
-      const l = await labelsInOrder();
-      return l.indexOf('━━ ЛИЧНОЕ ━━') === 3 && l[4] === 'repoA';
-    });
-  });
-
-  await step('renaming a category renames its header', async () => {
+  await step('renaming a category renames its title', async () => {
     await helper('category.rename', { id: catL, name: 'Своё' });
-    await waitFor('renamed', async () => (await labelsInOrder()).includes('━━ СВОЁ ━━'));
+    await waitFor('renamed', async () => await sectionOf('repoA') === '━━ СВОЁ ━━');
   });
 
   let wt1New;
@@ -294,7 +294,7 @@ async function main() {
     await waitFor('helper gone', async () => { try { await helper('ping'); return false; } catch { return true; } }, 15000);
     const ws = await list();
     assert(!ws.some(w => /^━━ /.test(w.label)), 'headers left');
-    assert(!ws.some(w => w.tokens && (w.tokens.project || w.tokens.duty)), 'tokens left');
+    assert(!ws.some(w => w.tokens && (w.tokens.section || w.tokens.project || w.tokens.duty)), 'tokens left');
     const ids = ws.map(w => w.workspace_id);
     const known = ids.filter(id => orig.includes(id));
     assert(known.join('|') === orig.filter(id => ids.includes(id)).join('|'), `order ${known.join(',')} vs ${orig.join(',')}`);
@@ -311,6 +311,7 @@ async function cleanup() {
     for (const wt of ['wt1', 'wt2']) spawnSync('git', ['worktree', 'remove', '--force', path.join(LAB, 'wt', wt)], { cwd: repo });
     spawnSync('git', ['worktree', 'prune'], { cwd: repo });
   }
+  fs.rmSync(REAL_SESSION_DIR, { recursive: true, force: true });
   for (let i = 0; i < 10; i++) {
     try { fs.rmSync(LAB, { recursive: true, force: true }); break; } catch { await sleep(1000); }
   }

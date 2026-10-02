@@ -39,4 +39,11 @@ function sessionDir(stateRoot, socketPath) {
   return path.join(stateRoot, 'sessions', sessionName(socketPath));
 }
 
-module.exports = { normPath, sessionName, pipePath, daemonPipe, sessionDir };
+// The plugin is linked for every herdr session of the user. A test session puts
+// this file into its session folder so the real helper never runs there.
+const OFF_MARKER = 'helper-off';
+function helperOff(stateRoot, socketPath) {
+  return require('node:fs').existsSync(path.join(sessionDir(stateRoot, socketPath), OFF_MARKER));
+}
+
+module.exports = { normPath, sessionName, pipePath, daemonPipe, sessionDir, OFF_MARKER, helperOff };
