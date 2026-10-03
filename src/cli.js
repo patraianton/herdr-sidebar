@@ -235,7 +235,10 @@ async function jumpTo(h, state, slot) {
   await h.focusWorkspace(w.workspace_id);
   if (!hk.target.tabId) return w.workspace_id;
   const t = hotkeys.findTab(hk.target, await h.listTabs(w.workspace_id), w.workspace_id);
-  if (!t) return w.workspace_id;
+  if (!t) {
+    await h.notify(`${hotkeys.displayKey(hk.key)}: вкладки «${hk.target.tabLabel}» нет`, `Открыт проект «${w.label}». Назначьте клавишу заново: prefix+shift+s, k.`);
+    return w.workspace_id;
+  }
   await h.focusTab(t.tab_id);
   return t.tab_id;
 }

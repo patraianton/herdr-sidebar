@@ -16,9 +16,10 @@ const STYLED_ROWS = [
   '  [{ token = "$project", dim = true }],',
   '  [{ token = "$duty", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }, { starts_with = "◆", fg = "#b8bb26" }] }],',
 ];
+const OPEN_KEY = 'prefix+shift+s';
 const OPEN_BINDING = [
   '[[keys.command]]',
-  'key = "prefix+shift+s"',
+  `key = "${OPEN_KEY}"`,
   'type = "plugin_action"',
   'command = "anton.sidebar.open"',
   'description = "категории и дежурства"',
@@ -183,4 +184,4 @@ function unpatchConfig(text, { originalRows, hadTable }) {
   return lines.join(eol);
 }
 
-module.exports = { BEGIN, END, KEYS_BEGIN, KEYS_END, patchConfig, refreshConfig, setKeysBlock, unpatchConfig, _internal: { topLevelElements, findRows } };
+module.exports = { BEGIN, END, KEYS_BEGIN, KEYS_END, OPEN_KEY, patchConfig, refreshConfig, setKeysBlock, unpatchConfig, _internal: { topLevelElements, findRows } };

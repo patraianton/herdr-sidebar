@@ -38,19 +38,32 @@ function defaultKeysConfig(configDir) {
       return inst && inst.configFile && fs.existsSync(inst.configFile) ? inst.configFile : null;
     },
     read: file => fs.readFileSync(file, 'utf8'),
-    write: (file, text) => fs.writeFileSync(file, text),
+    // whole file at once: a reader never sees half of it
+    write: (file, text) => {
+      const tmp = `${file}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, text);
+      fs.renameSync(tmp, file);
+    },
     backup: file => {
       const b = `${file}.bak-${new Date().toISOString().slice(0, 10)}-sidebar-keys`;
       if (!fs.existsSync(b)) fs.copyFileSync(file, b);
     },
-    // herdr's own check: the lines it prints besides the verdict
+    // herdr's own check: the lines it prints besides the verdict. No verdict
+    // means herdr did not run, and then nothing may be written.
     issues: file => {
       const r = run(['config', 'check'], { HERDR_CONFIG_PATH: file });
-      return `${r.stdout || ''}\n${r.stderr || ''}`.split(/\r?\n/).map(l => l.trim())
-        .filter(l => l && !/^config: (ok|issues found)$/.test(l));
+      const out = `${r.stdout || ''}\n${r.stderr || ''}`;
+      if (r.error || !/^config: (ok|issues found)$/m.test(out)) {
+        throw new Error(`Не смог проверить настройки herdr: ${r.error ? r.error.message : out.trim() || `код ${r.status}`}`);
+      }
+      return out.split(/\r?\n/).map(l => l.trim()).filter(l => l && !/^config: (ok|issues found)$/.test(l));
     },
     defaults: () => {
-      if (defaults === null) { const r = run(['--default-config']); defaults = r.status === 0 ? r.stdout : ''; }
+      if (defaults === null) {
+        const r = run(['--default-config']);
+        if (r.error || r.status !== 0 || !/\[keys\]/.test(r.stdout || '')) throw new Error('Не смог узнать клавиши herdr по умолчанию.');
+        defaults = r.stdout;
+      }
       return defaults;
     },
   };
@@ -213,6 +226,13 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     }
     const rk = hotkeys.refreshTargets(state.hotkeys || [], snap.workspaces, snap.paths, !continuityBroken);
     if (rk.changed) { state.hotkeys = rk.hotkeys; log('hotkey targets followed a rename or a new id'); }
+    const tabWs = [...new Set(state.hotkeys.filter(k => k.target.tabId).map(k => k.target.wsId))];
+    if (tabWs.length) {
+      const tabsByWs = {};
+      for (const id of tabWs) { try { tabsByWs[id] = await herdr.listTabs(id); } catch {} }
+      const rt = hotkeys.refreshTabs(state.hotkeys, tabsByWs, !continuityBroken);
+      if (rt.changed) { state.hotkeys = rt.hotkeys; log('hotkey tabs followed a rename or a new id'); }
+    }
     last.snap = snap;
     last.units = units;
     last.sections = model.sectionTokens(state, units, state.lastApplied);
@@ -379,27 +399,35 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
   const usedElsewhere = () => {
     const file = keysConfig.file();
     if (!file) throw new Error(NOT_INSTALLED);
-    return hotkeys.usedKeys(keysConfig.read(file), keysConfig.defaults(), configpatch.KEYS_BEGIN, configpatch.KEYS_END);
+    const used = hotkeys.usedKeys(keysConfig.read(file), keysConfig.defaults(), configpatch.KEYS_BEGIN, configpatch.KEYS_END);
+    used.set(hotkeys.normKey(configpatch.OPEN_KEY), 'окно плагина «Категории и дежурства»');
+    return used;
   };
 
+  // Other agents edit config.toml too, so the file is read again right before
+  // each write and only our block is replaced in what is there at that moment.
+  function putKeysBlock(file, list) {
+    const text = keysConfig.read(file);
+    let next;
+    try { next = configpatch.setKeysBlock(text, hotkeys.bindingLines(list, PLUGIN_ID)); } catch { throw new Error(NOT_INSTALLED); }
+    if (next !== text) keysConfig.write(file, next);
+    return next !== text;
+  }
+
   // Rewrite our bindings in config.toml; if herdr finds a new problem there,
-  // put the file back and refuse.
+  // put our old bindings back and refuse. Returns whether herdr re-read it.
   async function writeKeys(list) {
     const file = keysConfig.file();
     if (!file) throw new Error(NOT_INSTALLED);
-    const before = keysConfig.read(file);
-    let next;
-    try { next = configpatch.setKeysBlock(before, hotkeys.bindingLines(list, PLUGIN_ID)); } catch { throw new Error(NOT_INSTALLED); }
-    if (next === before) return;
-    const was = keysConfig.issues(file);
+    const was = new Set(keysConfig.issues(file).map(hotkeys.issueKey));
     keysConfig.backup(file);
-    keysConfig.write(file, next);
-    const fresh = keysConfig.issues(file).filter(l => !was.includes(l));
+    if (!putKeysBlock(file, list)) return true;
+    const fresh = keysConfig.issues(file).filter(l => !was.has(hotkeys.issueKey(l)));
     if (fresh.length) {
-      keysConfig.write(file, before);
+      putKeysBlock(file, state.hotkeys || []);
       throw new Error(`herdr не принял клавишу, настройки не тронуты: ${fresh.join('; ')}`);
     }
-    try { await herdr.reloadConfig(); } catch (e) { log('reload_config failed', e.message); }
+    try { await herdr.reloadConfig(); return true; } catch (e) { log('reload_config failed', e.message); return false; }
   }
 
   async function buildView() {
@@ -556,11 +584,11 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       const slot = (was && was.slot) || (old && old.slot) || hotkeys.nextSlot(others);
       if (!slot) throw new Error(`Больше ${hotkeys.MAX_SLOTS} клавиш назначить нельзя: снимите какую-нибудь.`);
       const next = [...others, { slot, key: k, target }];
-      await writeKeys(next);
+      const reloaded = await writeKeys(next);
       state.hotkeys = next;
       log('hotkey', k, '->', wsId, tabId || '');
       return {
-        display: show, label: hotkeys.targetText(target),
+        display: show, label: hotkeys.targetText(target), reloaded,
         takenFrom: was && !sameTarget(was) ? hotkeys.targetText(was.target) : null,
         replaced: old ? hotkeys.displayKey(old.key) : null,
       };
@@ -570,9 +598,10 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       const prev = state.hotkeys || [];
       if (!prev.some(h => h.key === k)) throw new Error('Эта клавиша не назначена.');
       const next = prev.filter(h => h.key !== k);
-      await writeKeys(next);
+      const reloaded = await writeKeys(next);
       state.hotkeys = next;
       log('hotkey cleared', k);
+      return { reloaded };
     },
     'duty.status': async () => Object.values(state.duty).map(d => ({
       id: d.id, label: d.label, wsId: d.wsId, every: duty.fmtDur(d.everyMs), token: duty.dutyToken(d), alert: d.alert,
@@ -679,4 +708,4 @@ if (require.main === module) {
   d.start().then(ok => { if (!ok) process.exit(0); }, e => { d.log('start failed', e.message); process.exit(1); });
 }
 
-module.exports = { createDaemon };
+module.exports = { createDaemon, _defaultKeysConfig: defaultKeysConfig };

@@ -131,7 +131,7 @@ function overlay(lines, W, H) {
     ...body.map((b, i) => `${pad}│${m.type === 'menu' && i + off === m.sel ? A.rev : ''}${core.fit(` ${b}`, inner)}${A.reset}│`),
     `${pad}└${'─'.repeat(inner)}┘`,
   ];
-  S.menuBox = { firstItemY: top + 4, off };
+  S.menuBox = { firstItemY: top + 4, off, shown: m.type === 'menu' ? body.length : 0 };
   box.forEach((l, i) => { if (top + i < lines.length) lines[top + i] = l; });
 }
 
@@ -317,6 +317,7 @@ function keyMenu(m, wsId, tabId, title) {
     let t = `${res.display} → «${res.label}»`;
     if (res.takenFrom) t += `, у «${res.takenFrom}» она снята`;
     if (res.replaced) t += `, прежняя ${res.replaced} снята`;
+    if (res.reloaded === false) t += '. herdr не перечитал настройки: нажмите prefix+shift+r';
     return t;
   });
   const items = m.current.map(c => ({
@@ -461,8 +462,8 @@ function onMouse(m) {
   if (m.wheel) { if (!S.mode) move(m.wheel === 'down' ? 3 : -3); return; }
   if (S.mode) {
     if (S.mode.type === 'menu' && m.button === 0 && !m.release && !m.motion && S.menuBox) {
-      const i = m.y - S.menuBox.firstItemY + S.menuBox.off;
-      if (i >= 0 && i < S.mode.items.length) runMenuItem(i);
+      const j = m.y - S.menuBox.firstItemY; // only rows that are on screen
+      if (j >= 0 && j < S.menuBox.shown) runMenuItem(S.menuBox.off + j);
     }
     return;
   }

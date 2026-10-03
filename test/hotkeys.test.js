@@ -124,7 +124,7 @@ test('wsPath: worktree checkout first, then the first pane folder', () => {
   assert.equal(hk.wsPath(W('w1', 'x'), { w1: 'C:\\P\\' }), 'c:/p');
 });
 
-test('findTab: same id and name, else name, else id', () => {
+test('findTab: same id and name, else name', () => {
   const tabs = [
     { tab_id: 'w1:t1', workspace_id: 'w1', label: 'main' },
     { tab_id: 'w1:t2', workspace_id: 'w1', label: 'bots' },
@@ -132,7 +132,7 @@ test('findTab: same id and name, else name, else id', () => {
   ];
   assert.equal(hk.findTab({ tabId: 'w1:t2', tabLabel: 'bots' }, tabs, 'w1').tab_id, 'w1:t2');
   assert.equal(hk.findTab({ tabId: 'w1:t9', tabLabel: 'bots' }, tabs, 'w1').tab_id, 'w1:t2');
-  assert.equal(hk.findTab({ tabId: 'w1:t1', tabLabel: 'renamed' }, tabs, 'w1').tab_id, 'w1:t1');
+  assert.equal(hk.findTab({ tabId: 'w1:t1', tabLabel: 'renamed' }, tabs, 'w1'), null, 'a bare id may belong to another tab now');
   assert.equal(hk.findTab({ tabId: 'w1:t9', tabLabel: 'nope' }, tabs, 'w1'), null);
   assert.equal(hk.findTab({}, tabs, 'w1'), null, 'a workspace-wide hotkey has no tab');
 });
@@ -153,4 +153,40 @@ test('refreshTargets: follows a rename while watching, re-binds a new id after a
   r = hk.refreshTargets(keys, [W('w2', 'x')], {}, false);
   assert.equal(r.changed, false);
   assert.equal(r.hotkeys[0].target.wsId, 'w1');
+});
+
+test('review: shift with a printable key would swallow capitals', () => {
+  assert.equal(hk.normKey('shift+k'), null);
+  assert.equal(hk.normKey('shift+1'), null);
+  assert.equal(hk.normKey('shift+f5'), 'shift+f5');
+  assert.equal(hk.normKey('ctrl+shift+k'), 'ctrl+shift+k');
+});
+
+test('review: two projects with one name are told apart by folder even when the id now belongs to the other', () => {
+  const ws = [W('w2', 'api'), W('w5', 'api')];
+  const paths = { w2: 'C:/b', w5: 'C:/a' };
+  assert.equal(hk.findWorkspace({ wsId: 'w2', label: 'api', path: 'c:/a' }, ws, paths).workspace_id, 'w5');
+  // folder changed by cd: the id decides between the namesakes
+  assert.equal(hk.findWorkspace({ wsId: 'w2', label: 'api', path: 'c:/zzz' }, ws, paths).workspace_id, 'w2');
+});
+
+test('review: a tab is found by id and name or by name, never by a bare id that may be reused', () => {
+  const tabs = [{ tab_id: 'w1:t1', workspace_id: 'w1', label: 'other' }];
+  assert.equal(hk.findTab({ tabId: 'w1:t1', tabLabel: 'bots' }, tabs, 'w1'), null);
+});
+
+test('review: tab names follow a rename while watching, tab ids follow a restart', () => {
+  const keys = [{ slot: 1, key: 'f5', target: { wsId: 'w1', label: 'a', tabId: 'w1:t2', tabLabel: 'bots' } }];
+  let r = hk.refreshTabs(keys, { w1: [{ tab_id: 'w1:t2', workspace_id: 'w1', label: 'bots2' }] }, true);
+  assert.ok(r.changed);
+  assert.equal(r.hotkeys[0].target.tabLabel, 'bots2');
+  r = hk.refreshTabs(keys, { w1: [{ tab_id: 'w1:t2', workspace_id: 'w1', label: 'main' }, { tab_id: 'w1:t7', workspace_id: 'w1', label: 'bots' }] }, false);
+  assert.equal(r.hotkeys[0].target.tabId, 'w1:t7');
+  r = hk.refreshTabs(keys, {}, true);
+  assert.equal(r.changed, false, 'workspace not listed: left alone');
+});
+
+test('review: herdr check lines compare without the binding numbers', () => {
+  assert.equal(hk.issueKey('alt+1: kept keys.command[0].key, disabled keys.command[1].key'),
+    hk.issueKey('alt+1: kept keys.command[2].key, disabled keys.command[3].key'));
 });

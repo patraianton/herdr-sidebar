@@ -10,7 +10,7 @@ const cp = require('../src/configpatch');
 
 const BASE = cp.patchConfig('[[keys.command]]\nkey = "f7"\ntype = "plugin_action"\ncommand = "annotate.capture"\ndescription = "annotate text"\n').text;
 
-function setup({ workspaces, tabs = [], state, issuesAfter }) {
+function setup({ workspaces, tabs = [], state, issuesAfter, issues }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-keys-'));
   if (state) store.saveJson(path.join(dir, 'state.json'), { ...store.emptyState(), ...state });
   const calls = [];
@@ -36,7 +36,7 @@ function setup({ workspaces, tabs = [], state, issuesAfter }) {
     read: () => cfg.text,
     write: (_f, t) => { cfg.text = t; cfg.writes++; },
     backup: () => { cfg.backups++; },
-    issues: () => (issuesAfter && cfg.text.includes(issuesAfter.when) ? [issuesAfter.line] : []),
+    issues: () => (issues ? issues(cfg) : (issuesAfter && cfg.text.includes(issuesAfter.when) ? [issuesAfter.line] : [])),
     defaults: () => '[keys]\n# new_tab = "prefix+c"\n',
   };
   const d = createDaemon({
@@ -44,7 +44,7 @@ function setup({ workspaces, tabs = [], state, issuesAfter }) {
     subscribe: () => ({ close() {} }), now: () => 1_000_000_000, sendTelegram: async () => true,
   });
   d._test.markConnected();
-  return { d, herdr, calls, cfg, workspaces, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+  return { d, herdr, calls, cfg, workspaces, tabs, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }
 
 const ws = (id, label) => ({ workspace_id: id, label });

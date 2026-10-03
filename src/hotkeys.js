@@ -24,8 +24,9 @@ function normKey(s) {
   const mods = parts.map(p => MOD_ALIAS[p] || p);
   if (mods.some(m => !MOD_ORDER.includes(m)) || new Set(mods).size !== mods.length) return null;
   if (MOD_ORDER.includes(key)) return null;
-  // A bare letter or digit would swallow ordinary typing.
-  if (!mods.length && !/^f([1-9]|1[0-9]|2[0-4])$/.test(key)) return null;
+  // A bare letter or digit (or a capital one) would swallow ordinary typing.
+  const fkey = /^f([1-9]|1[0-9]|2[0-4])$/.test(key);
+  if (!fkey && (!mods.length || (mods.length === 1 && mods[0] === 'shift' && key.length === 1))) return null;
   mods.sort((a, b) => MOD_ORDER.indexOf(a) - MOD_ORDER.indexOf(b));
   return [...mods, key].join('+');
 }
@@ -130,24 +131,28 @@ function wsPath(w, paths) {
 }
 
 // The workspace a hotkey points at. The id alone is not proof: after a herdr
-// restart an id can belong to another workspace, so the name decides, the
-// folder breaks ties, and an id whose name changed counts only if its folder
-// is still the same (renamed while herdr was down).
+// restart an id can belong to another workspace, so the name decides; among
+// namesakes the folder decides, then the id; an id whose name changed counts
+// only if its folder is still the same (renamed while herdr was down).
 function findWorkspace(target, workspaces, paths) {
-  const byId = workspaces.find(w => w.workspace_id === target.wsId);
-  if (byId && byId.label === target.label) return byId;
   const same = workspaces.filter(w => w.label === target.label);
-  if (same.length) return same.find(w => target.path && wsPath(w, paths) === target.path) || same[0];
+  if (same.length === 1) return same[0];
+  if (same.length > 1) {
+    return same.find(w => target.path && wsPath(w, paths) === target.path)
+      || same.find(w => w.workspace_id === target.wsId) || same[0];
+  }
+  const byId = workspaces.find(w => w.workspace_id === target.wsId);
   if (byId && target.path && wsPath(byId, paths) === target.path) return byId;
   return null;
 }
 
+// Tabs have no folder, so a bare id that may now belong to another tab is not
+// enough: the name has to match (names follow renames while the helper watches).
 function findTab(target, tabs, wsId) {
   if (!target.tabId) return null;
   const own = tabs.filter(t => t.workspace_id === wsId);
   return own.find(t => t.tab_id === target.tabId && t.label === target.tabLabel)
     || own.find(t => t.label === target.tabLabel)
-    || own.find(t => t.tab_id === target.tabId)
     || null;
 }
 
@@ -169,7 +174,27 @@ function refreshTargets(hotkeys, workspaces, paths, continuous) {
   return { hotkeys: out, changed };
 }
 
+// tabsByWs: workspace id -> its tabs, for the workspaces with tab hotkeys.
+function refreshTabs(hotkeys, tabsByWs, continuous) {
+  let changed = false;
+  const out = hotkeys.map(hk => {
+    const t = hk.target;
+    const tabs = t.tabId && tabsByWs[t.wsId];
+    if (!tabs) return hk;
+    const byId = tabs.find(x => x.tab_id === t.tabId);
+    const tab = continuous && byId ? byId : findTab(t, tabs, t.wsId);
+    if (!tab || (tab.tab_id === t.tabId && (tab.label || '') === t.tabLabel)) return hk;
+    changed = true;
+    return { ...hk, target: { ...t, tabId: tab.tab_id, tabLabel: tab.label || '' } };
+  });
+  return { hotkeys: out, changed };
+}
+
+// herdr numbers the bindings in its check output; ours shift those numbers.
+const issueKey = line => String(line).replace(/\[\d+\]/g, '[]');
+
 module.exports = {
+  refreshTabs, issueKey,
   MAX_SLOTS, CHOICES, normKey, displayKey, usedKeys, bindingLines, nextSlot, wsPath, findWorkspace, findTab,
   refreshTargets, targetText,
 };

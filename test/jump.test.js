@@ -46,3 +46,11 @@ test('a closed project or an empty slot only shows a notice', async () => {
   assert.deepEqual(h.calls.map(c => c[0]), ['notify', 'notify']);
   assert.match(h.calls[0][1], /Alt\+1: «gone» не найдено/);
 });
+
+test('a missing tab opens the project and says why', async () => {
+  const h = fake([{ workspace_id: 'w4', label: 'cto' }], [{ tab_id: 'w4:t2', workspace_id: 'w4', label: 'main' }]);
+  const r = await jumpTo(h, state([{ slot: 1, key: 'f5', target: { wsId: 'w4', label: 'cto', tabId: 'w4:t2', tabLabel: 'bots' } }]), 1);
+  assert.equal(r, 'w4');
+  assert.deepEqual(h.calls.map(c => c[0]), ['ws', 'notify']);
+  assert.match(h.calls[1][1], /F5: вкладки «bots» нет/);
+});
