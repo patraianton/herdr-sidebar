@@ -9,6 +9,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const rpc = require('../../src/rpc');
 const ipc = require('../../src/ipc');
 const paths = require('../../src/paths');
+const configpatch = require('../../src/configpatch');
 
 const SESSION = 'sbplug';
 const KEEP = process.argv.includes('--keep');
@@ -63,7 +64,9 @@ function git(cwd, ...args) {
   return r.stdout.trim();
 }
 async function defaultCount() { return (await rpc.call(DEFAULT_SOCK, 'workspace.list', {})).workspaces.length; }
-async function labelsInOrder() { return (await list()).map(w => w.label); }
+// Other linked plugins may open workspaces of their own (yourmove opens «Board»).
+const LAB_LABELS = /^(repoA|wt1|wt2|plain1|plain2|━━ .+ ━━)$/;
+async function labelsInOrder() { return (await list()).map(w => w.label).filter(l => LAB_LABELS.test(l)); }
 
 let server = null;
 let daemon = null;
@@ -92,7 +95,9 @@ async function main() {
 
   fs.rmSync(LAB, { recursive: true, force: true });
   for (const d of ['repoA', 'plain1', 'plain2', 'elsewhere', 'wt', 'config']) fs.mkdirSync(path.join(LAB, d), { recursive: true });
-  fs.writeFileSync(env.HERDR_CONFIG_PATH, 'onboarding = false\n[ui.toast]\ndelivery = "herdr"\n');
+  // installed as cli.js install would do it, so the helper can write hotkeys
+  fs.writeFileSync(env.HERDR_CONFIG_PATH, configpatch.patchConfig('onboarding = false\n[ui.toast]\ndelivery = "herdr"\n').text);
+  fs.writeFileSync(path.join(CONFIG_DIR, 'install.json'), JSON.stringify({ configFile: env.HERDR_CONFIG_PATH, originalRows: null, hadTable: false }));
   fs.writeFileSync(path.join(CONFIG_DIR, 'settings.json'), JSON.stringify({ tickSec: 2, graceMin: 0, missingMin: 0.1, blockedMin: 0.1, silenceMarginMin: 0.1 }));
   const repo = path.join(LAB, 'repoA');
   git(repo, 'init', '-q', '-b', 'main');
@@ -128,6 +133,8 @@ async function main() {
   let catR;
   let catL;
   const sectionOf = async label => ((byLabel(await list(), label) || {}).tokens || {}).section || '';
+  // the first uncategorised row may be a foreign workspace such as «Board»
+  const firstAfter = async label => { const l = (await list()).map(w => w.label); return l[l.indexOf(label) + 1]; };
   await step('two categories add no workspaces of their own', async () => {
     await helper('category.create', { name: 'Реклама' });
     await helper('category.create', { name: 'Личное' });
@@ -151,7 +158,7 @@ async function main() {
     const want = ['plain1', 'repoA', 'wt1', 'wt2', 'plain2'];
     await waitFor(`order ${want.join(', ')}`, async () => (await labelsInOrder()).join('|') === want.join('|'));
     await waitFor('titles', async () => await sectionOf('plain1') === '━━ РЕКЛАМА ━━'
-      && await sectionOf('repoA') === '━━ ЛИЧНОЕ ━━' && await sectionOf('plain2') === '━━ БЕЗ КАТЕГОРИИ ━━'
+      && await sectionOf('repoA') === '━━ ЛИЧНОЕ ━━' && await sectionOf(await firstAfter('wt2')) === '━━ БЕЗ КАТЕГОРИИ ━━'
       && await sectionOf('wt1') === '' && await sectionOf('wt2') === '');
   });
 
@@ -262,6 +269,41 @@ async function main() {
     await until(/^$/);
   });
 
+  // herdr runs the jump action with the real plugin state folder of this
+  // session, so the lab helper's state is copied there before each jump.
+  const focusedId = async () => ((await list()).find(w => w.focused) || {}).workspace_id;
+  const jump = slot => {
+    fs.mkdirSync(REAL_SESSION_DIR, { recursive: true });
+    fs.copyFileSync(path.join(SESSION_DIR, 'state.json'), path.join(REAL_SESSION_DIR, 'state.json'));
+    h('plugin', 'action', 'invoke', `anton.sidebar.jump-${slot}`);
+  };
+  await step('hotkeys: written to config.toml, shown on the row, the jump action focuses the project and the tab', async () => {
+    const ws = await list();
+    const p1 = byLabel(ws, 'plain1').workspace_id;
+    const p2 = byLabel(ws, 'plain2').workspace_id;
+    const menu = await helper('hotkey.menu', { wsId: p1 });
+    assert(menu.choices.length === 21, `choices: ${menu.choices.length}`);
+    await helper('hotkey.set', { key: 'alt+1', wsId: p1 });
+    const tab = h('tab', 'create', '--workspace', p2, '--label', 'logs', '--no-focus').result.tab.tab_id;
+    await helper('hotkey.set', { key: 'f5', wsId: p2, tabId: tab });
+    const cfg = fs.readFileSync(env.HERDR_CONFIG_PATH, 'utf8');
+    assert(/key = "alt\+1"\s+type = "plugin_action"\s+command = "anton\.sidebar\.jump-1"/.test(cfg), 'alt+1 binding missing');
+    assert(/key = "f5"\s+type = "plugin_action"\s+command = "anton\.sidebar\.jump-2"/.test(cfg), 'f5 binding missing');
+    const check = spawnSync(HERDR, ['config', 'check'], { env, encoding: 'utf8' });
+    assert(check.status === 0, `config check: ${check.stdout}${check.stderr}`);
+    await waitFor('key token', async () => (byLabel(await list(), 'plain1').tokens || {}).key === 'Alt+1');
+    await api('workspace.focus', { workspace_id: byLabel(ws, 'repoA').workspace_id });
+    await waitFor('repoA focused', async () => await focusedId() === byLabel(ws, 'repoA').workspace_id);
+    jump(1);
+    await waitFor('plain1 focused', async () => await focusedId() === p1);
+    jump(2);
+    await waitFor('plain2 › logs focused', async () => await focusedId() === p2
+      && ((await api('tab.list', { workspace_id: p2 })).tabs.find(t => t.focused) || {}).tab_id === tab);
+    let refused = false;
+    try { await helper('hotkey.set', { key: 'prefix+c', wsId: p1 }); } catch (e) { refused = /new_tab/.test(e.message); }
+    assert(refused, 'a key of herdr itself was accepted');
+  });
+
   await step('restart: helper reconnects, order kept, tokens back', async () => {
     const w = byLabel(await list(), 'wt1');
     const r = await helper('unit.detach', { wsId: w.workspace_id, catId: catR });
@@ -275,14 +317,29 @@ async function main() {
     assert(after.join('|') === orderBefore.join('|'), `order changed: ${after.join(', ')}`);
   });
 
+  await step('after the restart the hotkey still finds its project and its key shows again', async () => {
+    const p1 = byLabel(await list(), 'plain1').workspace_id;
+    await waitFor('key token back', async () => (byLabel(await list(), 'plain1').tokens || {}).key === 'Alt+1', 30000);
+    await api('workspace.focus', { workspace_id: byLabel(await list(), 'repoA').workspace_id });
+    await waitFor('repoA focused', async () => await focusedId() === byLabel(await list(), 'repoA').workspace_id);
+    jump(1);
+    await waitFor('plain1 focused', async () => await focusedId() === p1);
+  });
+
   await step('window opens, shows categories, help and quits', async () => {
     const w = byLabel(await list(), 'plain1');
     const pane = (await api('pane.list', { workspace_id: w.workspace_id })).panes[0];
     h('pane', 'run', pane.pane_id, `node "${path.join(ROOT, 'src', 'ui.js')}"`);
     const screen = () => h('pane', 'read', pane.pane_id, '--source', 'visible', '--lines', '60');
     await waitFor('window drawn', async () => /Категории и дежурства/.test(screen()) && /РЕКЛАМА/.test(screen()), 20000);
+    await waitFor('key on its row', async () => /plain1.*Alt\+1/.test(screen()), 10000)
+      .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
     h('pane', 'send-keys', pane.pane_id, '?');
     await waitFor('help', async () => /Помощь/.test(screen()), 10000);
+    h('pane', 'send-keys', pane.pane_id, 'esc');
+    h('pane', 'send-keys', pane.pane_id, 'down');
+    h('pane', 'send-keys', pane.pane_id, 'k');
+    await waitFor('hotkey menu', async () => /Клавиша для|куда прыгать/.test(screen()), 10000);
     h('pane', 'send-keys', pane.pane_id, 'esc');
     h('pane', 'send-keys', pane.pane_id, 'q');
     await waitFor('closed', async () => !/Категории и дежурства/.test(screen()), 10000);
@@ -294,7 +351,7 @@ async function main() {
     await waitFor('helper gone', async () => { try { await helper('ping'); return false; } catch { return true; } }, 15000);
     const ws = await list();
     assert(!ws.some(w => /^━━ /.test(w.label)), 'headers left');
-    assert(!ws.some(w => w.tokens && (w.tokens.section || w.tokens.project || w.tokens.duty)), 'tokens left');
+    assert(!ws.some(w => w.tokens && (w.tokens.section || w.tokens.project || w.tokens.duty || w.tokens.key)), 'tokens left');
     const ids = ws.map(w => w.workspace_id);
     const known = ids.filter(id => orig.includes(id));
     assert(known.join('|') === orig.filter(id => ids.includes(id)).join('|'), `order ${known.join(',')} vs ${orig.join(',')}`);

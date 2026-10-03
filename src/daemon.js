@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 'use strict';
 // Background helper, one per herdr session: keeps the Spaces order, publishes
-// the $section/$project/$duty tokens, watches duty agents and serves the window
-// and CLI. Category titles are $section tokens drawn on top of the first project
+// the $section/$project/$duty/$key tokens, watches duty agents, keeps the jump
+// hotkeys in config.toml and serves the window and CLI. Category titles are $section tokens drawn on top of the first project
 // of each category; earlier versions used separate title workspaces, which the
 // helper now closes.
 const fs = require('node:fs');
 const path = require('node:path');
-const { makeHerdr } = require('./herdr');
+const { spawnSync } = require('node:child_process');
+const { makeHerdr, PLUGIN_ID } = require('./herdr');
 const rpc = require('./rpc');
 const ipc = require('./ipc');
 const paths = require('./paths');
@@ -16,15 +17,48 @@ const model = require('./model');
 const duty = require('./duty');
 const notify = require('./notify');
 const ops = require('./ops');
+const hotkeys = require('./hotkeys');
+const configpatch = require('./configpatch');
 
 const SUBSCRIPTIONS = [
   'workspace.created', 'workspace.closed', 'workspace.moved', 'workspace.reordered', 'workspace.renamed',
   'worktree.created', 'worktree.opened', 'worktree.removed',
 ].map(type => ({ type }));
-const TOKEN_KEYS = ['section', 'project', 'duty'];
+const TOKEN_KEYS = ['section', 'project', 'duty', 'key'];
+const NOT_INSTALLED = 'Плагин не установлен в настройки herdr. Запустите: node sidebar/src/cli.js install';
 
-function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: subscribeIn, now: clockIn, sendTelegram: sendIn }) {
+// config.toml access for the hotkeys; tests pass their own.
+function defaultKeysConfig(configDir) {
+  const bin = process.env.HERDR_BIN_PATH || 'herdr';
+  const run = (args, env) => spawnSync(bin, args, { encoding: 'utf8', windowsHide: true, env: { ...process.env, ...env } });
+  let defaults = null;
+  return {
+    file: () => {
+      const inst = store.loadJson(path.join(configDir, 'install.json'), null);
+      return inst && inst.configFile && fs.existsSync(inst.configFile) ? inst.configFile : null;
+    },
+    read: file => fs.readFileSync(file, 'utf8'),
+    write: (file, text) => fs.writeFileSync(file, text),
+    backup: file => {
+      const b = `${file}.bak-${new Date().toISOString().slice(0, 10)}-sidebar-keys`;
+      if (!fs.existsSync(b)) fs.copyFileSync(file, b);
+    },
+    // herdr's own check: the lines it prints besides the verdict
+    issues: file => {
+      const r = run(['config', 'check'], { HERDR_CONFIG_PATH: file });
+      return `${r.stdout || ''}\n${r.stderr || ''}`.split(/\r?\n/).map(l => l.trim())
+        .filter(l => l && !/^config: (ok|issues found)$/.test(l));
+    },
+    defaults: () => {
+      if (defaults === null) { const r = run(['--default-config']); defaults = r.status === 0 ? r.stdout : ''; }
+      return defaults;
+    },
+  };
+}
+
+function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: subscribeIn, now: clockIn, sendTelegram: sendIn, keysConfig: keysIn }) {
   const herdr = herdrIn || makeHerdr(socketPath);
+  const keysConfig = keysIn || defaultKeysConfig(configDir);
   const subscribe = subscribeIn || rpc.subscribe;
   const clock = clockIn || Date.now;
   const sendTelegram = sendIn || notify.sendTelegramWithRetry;
@@ -177,6 +211,8 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     } else {
       state.lastApplied = snap.order;
     }
+    const rk = hotkeys.refreshTargets(state.hotkeys || [], snap.workspaces, snap.paths, !continuityBroken);
+    if (rk.changed) { state.hotkeys = rk.hotkeys; log('hotkey targets followed a rename or a new id'); }
     last.snap = snap;
     last.units = units;
     last.sections = model.sectionTokens(state, units, state.lastApplied);
@@ -196,6 +232,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     for (const [wsId, title] of Object.entries(last.sections)) put(wsId, 'section', title);
     for (const [wsId, d] of Object.entries(state.detached)) put(wsId, 'project', `⎇ ${d.parentLabel}`);
     for (const d of Object.values(state.duty)) if (d.wsId) put(d.wsId, 'duty', duty.dutyToken(d));
+    for (const [wsId, list] of keysByWs()) put(wsId, 'key', list.map(k => k.display).join(' '));
     return want;
   }
 
@@ -329,6 +366,42 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
   };
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
+  function keysByWs() {
+    const by = new Map();
+    const rank = h => { const i = hotkeys.CHOICES.indexOf(h.key); return i < 0 ? 100 + h.slot : i; };
+    for (const h of [...(state.hotkeys || [])].sort((a, b) => rank(a) - rank(b))) {
+      if (!by.has(h.target.wsId)) by.set(h.target.wsId, []);
+      by.get(h.target.wsId).push({ key: h.key, display: hotkeys.displayKey(h.key), tabLabel: h.target.tabLabel || null });
+    }
+    return by;
+  }
+
+  const usedElsewhere = () => {
+    const file = keysConfig.file();
+    if (!file) throw new Error(NOT_INSTALLED);
+    return hotkeys.usedKeys(keysConfig.read(file), keysConfig.defaults(), configpatch.KEYS_BEGIN, configpatch.KEYS_END);
+  };
+
+  // Rewrite our bindings in config.toml; if herdr finds a new problem there,
+  // put the file back and refuse.
+  async function writeKeys(list) {
+    const file = keysConfig.file();
+    if (!file) throw new Error(NOT_INSTALLED);
+    const before = keysConfig.read(file);
+    let next;
+    try { next = configpatch.setKeysBlock(before, hotkeys.bindingLines(list, PLUGIN_ID)); } catch { throw new Error(NOT_INSTALLED); }
+    if (next === before) return;
+    const was = keysConfig.issues(file);
+    keysConfig.backup(file);
+    keysConfig.write(file, next);
+    const fresh = keysConfig.issues(file).filter(l => !was.includes(l));
+    if (fresh.length) {
+      keysConfig.write(file, before);
+      throw new Error(`herdr не принял клавишу, настройки не тронуты: ${fresh.join('; ')}`);
+    }
+    try { await herdr.reloadConfig(); } catch (e) { log('reload_config failed', e.message); }
+  }
+
   async function buildView() {
     if (!last.snap) await cycle('view');
     const units = last.units;
@@ -341,11 +414,15 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     const dutyOf = wsId => Object.values(state.duty).filter(d => d.wsId === wsId).map(d => ({
       id: d.id, paneId: d.paneId, text: duty.dutyToken(d), alert: !!d.alert, everyMs: d.everyMs,
     }));
+    const keys = keysByWs();
+    const keysOf = wsId => keys.get(wsId) || [];
     const unitView = u => ({
       key: u.key, kind: u.kind, label: u.label, anchorId: u.anchorId, wsIds: u.wsIds, linked: !!u.linked,
       detached: state.detached[u.anchorId] ? { parentLabel: state.detached[u.anchorId].parentLabel } : null,
-      duty: dutyOf(u.anchorId), agents: agentsOf(u.anchorId),
-      children: u.children.map(ch => ({ wsId: ch.wsId, label: ch.label, duty: dutyOf(ch.wsId), agents: agentsOf(ch.wsId) })),
+      duty: dutyOf(u.anchorId), agents: agentsOf(u.anchorId), keys: keysOf(u.anchorId),
+      children: u.children.map(ch => ({
+        wsId: ch.wsId, label: ch.label, duty: dutyOf(ch.wsId), agents: agentsOf(ch.wsId), keys: keysOf(ch.wsId),
+      })),
     });
     const assigned = new Set();
     const categories = state.categories.map(c => ({
@@ -443,6 +520,60 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       state.duty[found.id] = duty.applyReset(found, clock());
       return { id: found.id };
     },
+    // What the window offers for one workspace: the free keys (ours show what
+    // they jump to now), its tabs, and the keys it already has.
+    'hotkey.menu': async ({ wsId }) => {
+      const used = usedElsewhere();
+      const mine = state.hotkeys || [];
+      const choices = hotkeys.CHOICES.filter(k => !used.has(k)).map(k => {
+        const h = mine.find(x => x.key === k);
+        return { key: k, display: hotkeys.displayKey(k), owner: h ? hotkeys.targetText(h.target) : null };
+      });
+      let tabs = [];
+      try { tabs = (await herdr.listTabs(wsId)).map(t => ({ tabId: t.tab_id, label: t.label || '' })); } catch {}
+      return { choices, tabs, current: keysByWs().get(wsId) || [] };
+    },
+    'hotkey.set': async ({ key, wsId, tabId }) => {
+      const k = hotkeys.normKey(key);
+      if (!k) throw new Error(`«${key}» не годится. Примеры: alt+1, f5, ctrl+alt+k, prefix+alt+1`);
+      const show = hotkeys.displayKey(k);
+      const used = usedElsewhere();
+      if (used.has(k)) throw new Error(`${show} уже занята: ${used.get(k)}`);
+      const snap = last.snap || await snapshot();
+      const w = snap.byId.get(wsId);
+      if (!w) throw new Error('Этого рабочего места уже нет.');
+      let target = { wsId, label: w.label, path: hotkeys.wsPath(w, snap.paths) };
+      if (tabId) {
+        const t = (await herdr.listTabs(wsId)).find(x => x.tab_id === tabId);
+        if (!t) throw new Error('Этой вкладки уже нет.');
+        target = { ...target, tabId, tabLabel: t.label || '' };
+      }
+      const prev = state.hotkeys || [];
+      const sameTarget = h => h.target.wsId === wsId && (h.target.tabId || null) === (tabId || null);
+      const was = prev.find(h => h.key === k);
+      const old = prev.find(h => h.key !== k && sameTarget(h));
+      const others = prev.filter(h => h.key !== k && !sameTarget(h));
+      const slot = (was && was.slot) || (old && old.slot) || hotkeys.nextSlot(others);
+      if (!slot) throw new Error(`Больше ${hotkeys.MAX_SLOTS} клавиш назначить нельзя: снимите какую-нибудь.`);
+      const next = [...others, { slot, key: k, target }];
+      await writeKeys(next);
+      state.hotkeys = next;
+      log('hotkey', k, '->', wsId, tabId || '');
+      return {
+        display: show, label: hotkeys.targetText(target),
+        takenFrom: was && !sameTarget(was) ? hotkeys.targetText(was.target) : null,
+        replaced: old ? hotkeys.displayKey(old.key) : null,
+      };
+    },
+    'hotkey.clear': async ({ key }) => {
+      const k = hotkeys.normKey(key);
+      const prev = state.hotkeys || [];
+      if (!prev.some(h => h.key === k)) throw new Error('Эта клавиша не назначена.');
+      const next = prev.filter(h => h.key !== k);
+      await writeKeys(next);
+      state.hotkeys = next;
+      log('hotkey cleared', k);
+    },
     'duty.status': async () => Object.values(state.duty).map(d => ({
       id: d.id, label: d.label, wsId: d.wsId, every: duty.fmtDur(d.everyMs), token: duty.dutyToken(d), alert: d.alert,
     })),
@@ -464,7 +595,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
         }
         for (const w of snap.workspaces) {
           const t = w.tokens || {};
-          if (TOKEN_KEYS.some(k => t[k] != null)) await herdr.setTokens(w.workspace_id, { section: null, project: null, duty: null }).catch(() => {});
+          if (TOKEN_KEYS.some(k => t[k] != null)) await herdr.setTokens(w.workspace_id, Object.fromEntries(TOKEN_KEYS.map(k => [k, null]))).catch(() => {});
         }
         detachedLeft = Object.keys(state.detached).length;
         store.saveJson(path.join(dir, `state.uninstalled-${new Date().toISOString().slice(0, 10)}.json`), state);
@@ -483,7 +614,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     shutdown: async () => { setTimeout(() => shutdown(0), 100); return { ok: true }; },
   };
   const UNSERIALIZED = new Set(['ping', 'view']);
-  const NO_CYCLE = new Set(['duty.status', 'uninstall', 'shutdown']);
+  const NO_CYCLE = new Set(['duty.status', 'hotkey.menu', 'uninstall', 'shutdown']);
 
   function handle(cmd, args) {
     const fn = handlers[cmd];

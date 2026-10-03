@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// The plugin window (a herdr popup): categories, moves, worktree detach, duty.
+// The plugin window (a herdr popup): categories, moves, worktree detach, duty, hotkeys.
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const ipc = require('./ipc');
@@ -26,6 +26,7 @@ const HELP = [
   '→/← — показать или скрыть копии проекта',
   'w — вынести копию из проекта / вернуть обратно',
   't — дежурство: включить, сменить интервал, снять',
+  'k — горячая клавиша: прыжок к проекту (или к его вкладке) одним нажатием',
   'n — новая категория;  r — переименовать;  x — удалить',
   'U — выключить плагин и вернуть всё как было',
   'q или Esc — закрыть окно',
@@ -45,7 +46,8 @@ let quitting = false;
 
 const call = (cmd, args) => ipc.request(PIPE, cmd, args || {}, 120000);
 function setMsg(text, err = false) { S.msg = text; S.msgErr = err; S.msgAt = Date.now(); }
-function size() { return { W: Math.max(40, out.columns || 80), H: Math.max(14, out.rows || 24) }; }
+// The last column stays empty: erasing to the end of a full line would eat its last character.
+function size() { return { W: Math.max(40, (out.columns || 80) - 1), H: Math.max(14, out.rows || 24) }; }
 const listHeight = () => size().H - 6;
 const realCats = () => (S.view ? S.view.categories.filter(c => c.id !== NONE) : []);
 
@@ -95,13 +97,25 @@ function formatRow(r, W, selected, dropHint) {
   const right = d ? d.text : '';
   const rw = right ? [...right].length + 2 : 0;
   const color = d ? (d.alert ? A.red + A.bold : A.green) : '';
-  return pre + core.fit(head + item.label + extra, W - rw) + (right ? `  ${color}${right}` : '') + A.reset;
+  const keys = (item.keys || []).map(k => k.display).join(' ');
+  const kw = keys ? [...keys].length + 2 : 0;
+  return pre + core.fit(head + item.label + extra, W - rw - kw) + (keys ? `  ${A.cyan}${keys}` : '')
+    + (right ? `  ${color}${right}` : '') + A.reset;
 }
 
 function overlay(lines, W, H) {
   const m = S.mode;
   let body = [];
-  if (m.type === 'menu') body = m.items.map((it, i) => `${i === m.sel ? '▶' : ' '} ${i < 9 ? `${i + 1}.` : '  '} ${it.label}`);
+  let off = 0;
+  if (m.type === 'menu') {
+    const room = Math.max(3, H - 6);
+    off = Math.max(0, Math.min(m.sel, m.items.length - room, Math.max(m.off || 0, m.sel - room + 1)));
+    m.off = off;
+    body = m.items.slice(off, off + room).map((it, j) => {
+      const i = off + j;
+      return `${i === m.sel ? '▶' : ' '} ${i < 9 ? `${i + 1}.` : '  '} ${it.label}`;
+    });
+  }
   else if (m.type === 'input') body = [`${m.value}▏`, '', 'Enter — готово, Esc — отмена'];
   else if (m.type === 'confirm') body = ['y или д — да;  n, н или Esc — нет'];
   else if (m.type === 'help') body = [...HELP, '', 'Любая клавиша — закрыть'];
@@ -114,10 +128,10 @@ function overlay(lines, W, H) {
     `${pad}┌${'─'.repeat(inner)}┐`,
     `${pad}│${A.bold}${core.fit(` ${title}`, inner)}${A.reset}│`,
     `${pad}├${'─'.repeat(inner)}┤`,
-    ...body.map((b, i) => `${pad}│${m.type === 'menu' && i === m.sel ? A.rev : ''}${core.fit(` ${b}`, inner)}${A.reset}│`),
+    ...body.map((b, i) => `${pad}│${m.type === 'menu' && i + off === m.sel ? A.rev : ''}${core.fit(` ${b}`, inner)}${A.reset}│`),
     `${pad}└${'─'.repeat(inner)}┘`,
   ];
-  S.menuBox = { firstItemY: top + 4 };
+  S.menuBox = { firstItemY: top + 4, off };
   box.forEach((l, i) => { if (top + i < lines.length) lines[top + i] = l; });
 }
 
@@ -148,8 +162,8 @@ function render() {
   const fresh = S.msg && Date.now() - S.msgAt < 8000;
   lines.push(S.busy ? A.cyan + core.fit(' …работаю', W) + A.reset
     : (fresh ? (S.msgErr ? A.red : A.cyan) + core.fit(` ${S.msg}`, W) + A.reset : ''));
-  lines.push(A.dim + core.fit(' ↑↓ выбор · Shift+↑↓ или J/K двигать · m в категорию · Enter меню · →/← копии', W) + A.reset);
-  lines.push(A.dim + core.fit(' n новая · r переименовать · x удалить · w вынести/вернуть · t дежурство · q выход', W) + A.reset);
+  lines.push(A.dim + core.fit(' ↑↓ выбор · Shift+↑↓ двигать · m в категорию · k горячая клавиша · Enter меню', W) + A.reset);
+  lines.push(A.dim + core.fit(' →/← копии · n новая · r переименовать · x удалить · w вынести · t дежурство · q выход', W) + A.reset);
   if (S.mode) overlay(lines, W, H);
   out.write(`\x1b[H${lines.map(l => `${l}\x1b[0m\x1b[K`).join('\r\n')}\x1b[J`);
 }
@@ -298,6 +312,44 @@ function dutyMenuFor(r) {
   return r.type === 'child' ? dutyMenu(r.child.wsId, r.child) : dutyMenu(r.unit.anchorId, r.unit);
 }
 
+function keyMenu(m, wsId, tabId, title) {
+  const set = key => act(() => call('hotkey.set', { key, wsId, tabId }), res => {
+    let t = `${res.display} → «${res.label}»`;
+    if (res.takenFrom) t += `, у «${res.takenFrom}» она снята`;
+    if (res.replaced) t += `, прежняя ${res.replaced} снята`;
+    return t;
+  });
+  const items = m.current.map(c => ({
+    label: `Снять ${c.display}${c.tabLabel ? ` (вкладка «${c.tabLabel}»)` : ''}`,
+    run: () => act(() => call('hotkey.clear', { key: c.key }), `${c.display} снята`),
+  }));
+  const first = items.length;
+  for (const c of m.choices) items.push({ label: c.owner ? `${c.display}    сейчас: ${c.owner}` : c.display, run: () => set(c.key) });
+  items.push({ label: 'Своя комбинация…', run: () => input('Сочетание, например ctrl+alt+k, prefix+alt+1, f9', '', v => set(v)) });
+  const free = m.choices.findIndex(c => !c.owner);
+  menu(`Клавиша для «${title}»`, items, free >= 0 ? first + free : first);
+}
+
+async function hotkeyFor(r) {
+  if (S.busy) return undefined;
+  if (!r || r.type === 'cat') return setMsg('Выберите проект.', true);
+  const wsId = r.type === 'child' ? r.child.wsId : r.unit.anchorId;
+  const label = r.type === 'child' ? r.child.label : r.unit.label;
+  let m;
+  S.busy = true;
+  render();
+  try { m = await call('hotkey.menu', { wsId }); } catch (e) { setMsg(e.message, true); } finally { S.busy = false; }
+  if (m && m.tabs.length < 2) keyMenu(m, wsId, null, label);
+  else if (m) {
+    menu(`«${label}»: куда прыгать по клавише?`, [
+      { label: 'В проект (на вкладку, открытую последней)', run: () => keyMenu(m, wsId, null, label) },
+      ...m.tabs.map(t => ({ label: `На вкладку «${t.label || t.tabId}»`, run: () => keyMenu(m, wsId, t.tabId, `${label} › ${t.label}`) })),
+    ]);
+  }
+  render(); // the answer came after the key press was drawn
+  return undefined;
+}
+
 function openMenu(r) {
   if (!r) return undefined;
   const items = [];
@@ -317,9 +369,11 @@ function openMenu(r) {
       items.push({ label: open ? 'Скрыть копии' : 'Показать копии', run: () => expand(r, !open) });
     }
     items.push({ label: 'Дежурство…', run: () => dutyMenuFor(r) });
+    items.push({ label: 'Горячая клавиша…', run: () => hotkeyFor(r) });
   } else {
     items.push({ label: 'Вынести из проекта…', run: () => detachOrReturn(r) });
     items.push({ label: 'Дежурство…', run: () => dutyMenuFor(r) });
+    items.push({ label: 'Горячая клавиша…', run: () => hotkeyFor(r) });
   }
   const title = r.type === 'cat' ? r.name : (r.type === 'child' ? r.child.label : r.unit.label);
   return menu(title, items);
@@ -398,6 +452,7 @@ function onKey(ev) {
   else if (ch === 'm') pickCategory(r);
   else if (ch === 'w') detachOrReturn(r);
   else if (ch === 't') dutyMenuFor(r);
+  else if (ch === 'k') hotkeyFor(r);
   else if (ch === '?' || ev.char === ',') S.mode = { type: 'help', title: 'Помощь' };
   else if (ch === 'U') uninstallFlow();
 }
@@ -406,7 +461,7 @@ function onMouse(m) {
   if (m.wheel) { if (!S.mode) move(m.wheel === 'down' ? 3 : -3); return; }
   if (S.mode) {
     if (S.mode.type === 'menu' && m.button === 0 && !m.release && !m.motion && S.menuBox) {
-      const i = m.y - S.menuBox.firstItemY;
+      const i = m.y - S.menuBox.firstItemY + S.menuBox.off;
       if (i >= 0 && i < S.mode.items.length) runMenuItem(i);
     }
     return;

@@ -33,7 +33,7 @@ test('patch replaces rows, keeps $kran and other content, adds the key binding',
   assert.ok(r.text.includes('\r\n'), 'keeps CRLF');
   const t = r.text;
   assert.ok(t.includes(cp.BEGIN) && t.includes(cp.END));
-  assert.ok(t.includes('  [{ token = "$section", fg = "#fabd2f", bold = true }],\r\n  ["state_icon", "workspace"],'), 'title row first, then the plain name row');
+  assert.ok(t.includes('  [{ token = "$section", fg = "#fabd2f", bold = true }],\r\n  ["state_icon", "workspace", { token = "$key", fg = "#83a598" }],'), 'title row first, then the name row with its hotkey');
   assert.ok(!t.includes('starts_with = "━━"'), 'no title-workspace styling');
   assert.ok(t.includes('[{ token = "$project", dim = true }],'));
   assert.ok(t.includes('token = "$duty"'));
@@ -128,3 +128,29 @@ test('refresh refuses a config without the plugin block', () => {
   assert.throws(() => cp.refreshConfig(ANTON), /not installed/);
 });
 
+
+test('setKeysBlock puts hotkey bindings after the window binding and keeps the rest', () => {
+  const r = cp.patchConfig(ANTON);
+  const extra = ['[[keys.command]]', 'key = "alt+1"', 'type = "plugin_action"', 'command = "anton.sidebar.jump-1"'];
+  const t = cp.setKeysBlock(r.text, extra);
+  assert.ok(t.includes('\r\n'), 'keeps CRLF');
+  const b = t.indexOf(cp.KEYS_BEGIN);
+  const e = t.indexOf(cp.KEYS_END);
+  assert.ok(t.indexOf('anton.sidebar.open') > b && t.indexOf('anton.sidebar.jump-1') > t.indexOf('anton.sidebar.open'));
+  assert.ok(t.indexOf('anton.sidebar.jump-1') < e);
+  assert.ok(t.includes('annotate.capture'));
+  const t2 = cp.setKeysBlock(t, []);
+  assert.ok(!t2.includes('jump-1'), 'replacing again drops the old hotkeys');
+  assert.equal(t2, r.text);
+  assert.equal(cp.unpatchConfig(t, r), ANTON, 'uninstall removes the hotkeys too');
+  assert.throws(() => cp.setKeysBlock(ANTON, extra), /not installed/);
+});
+
+test('refresh turns the old plain name row into the row with the hotkey', () => {
+  const old = cp.patchConfig(ANTON).text.replace('["state_icon", "workspace", { token = "$key", fg = "#83a598" }]', '["state_icon", "workspace"]');
+  assert.ok(!old.includes('$key'));
+  const t = cp.refreshConfig(old);
+  assert.equal(t.match(/"state_icon"/g).length, 1);
+  assert.ok(t.includes('{ token = "$key"'));
+  assert.ok(t.includes('  ["$kran"],'));
+});

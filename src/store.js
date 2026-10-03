@@ -36,6 +36,7 @@ function emptyState() {
     headers: {},      // categoryId | '__none' -> header workspace id
     detached: {},     // workspace id -> { checkout, repoKey, repoRoot, parentLabel, name, at }
     duty: {},         // duty id -> duty record (see duty.js)
+    hotkeys: [],      // [{ slot, key, target: { wsId, label, path, tabId?, tabLabel? } }] (see hotkeys.js)
     lastApplied: null, // workspace ids in the order the helper last saw or set
     lastCycleAt: null, // time of the last reconcile (continuity of observation)
     nextId: 1,

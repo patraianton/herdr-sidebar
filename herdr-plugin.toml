@@ -1,8 +1,8 @@
 id = "anton.sidebar"
 name = "Категории и дежурства"
-version = "0.1.0"
+version = "0.2.0"
 min_herdr_version = "0.9.1"
-description = "Свои категории в боковой панели Spaces, вынос копий проекта из группы, пометка и проверка дежурных агентов"
+description = "Свои категории в боковой панели Spaces, вынос копий проекта из группы, пометка и проверка дежурных агентов, горячие клавиши для прыжка к проекту"
 platforms = ["windows", "linux", "macos"]
 
 [[startup]]
@@ -38,6 +38,158 @@ command = ["node", "src/cli.js", "open"]
 id = "ensure"
 title = "Запустить помощника «Категорий и дежурств»"
 command = ["node", "src/ensure.js"]
+
+# Горячие клавиши: config.toml связывает клавишу с действием jump-N, а что такое N,
+# помощник хранит у себя (окно плагина, клавиша k). 30 мест хватит с запасом.
+[[actions]]
+id = "jump-1"
+title = "Прыжок по горячей клавише 1"
+command = ["node", "src/cli.js", "jump", "1"]
+
+[[actions]]
+id = "jump-2"
+title = "Прыжок по горячей клавише 2"
+command = ["node", "src/cli.js", "jump", "2"]
+
+[[actions]]
+id = "jump-3"
+title = "Прыжок по горячей клавише 3"
+command = ["node", "src/cli.js", "jump", "3"]
+
+[[actions]]
+id = "jump-4"
+title = "Прыжок по горячей клавише 4"
+command = ["node", "src/cli.js", "jump", "4"]
+
+[[actions]]
+id = "jump-5"
+title = "Прыжок по горячей клавише 5"
+command = ["node", "src/cli.js", "jump", "5"]
+
+[[actions]]
+id = "jump-6"
+title = "Прыжок по горячей клавише 6"
+command = ["node", "src/cli.js", "jump", "6"]
+
+[[actions]]
+id = "jump-7"
+title = "Прыжок по горячей клавише 7"
+command = ["node", "src/cli.js", "jump", "7"]
+
+[[actions]]
+id = "jump-8"
+title = "Прыжок по горячей клавише 8"
+command = ["node", "src/cli.js", "jump", "8"]
+
+[[actions]]
+id = "jump-9"
+title = "Прыжок по горячей клавише 9"
+command = ["node", "src/cli.js", "jump", "9"]
+
+[[actions]]
+id = "jump-10"
+title = "Прыжок по горячей клавише 10"
+command = ["node", "src/cli.js", "jump", "10"]
+
+[[actions]]
+id = "jump-11"
+title = "Прыжок по горячей клавише 11"
+command = ["node", "src/cli.js", "jump", "11"]
+
+[[actions]]
+id = "jump-12"
+title = "Прыжок по горячей клавише 12"
+command = ["node", "src/cli.js", "jump", "12"]
+
+[[actions]]
+id = "jump-13"
+title = "Прыжок по горячей клавише 13"
+command = ["node", "src/cli.js", "jump", "13"]
+
+[[actions]]
+id = "jump-14"
+title = "Прыжок по горячей клавише 14"
+command = ["node", "src/cli.js", "jump", "14"]
+
+[[actions]]
+id = "jump-15"
+title = "Прыжок по горячей клавише 15"
+command = ["node", "src/cli.js", "jump", "15"]
+
+[[actions]]
+id = "jump-16"
+title = "Прыжок по горячей клавише 16"
+command = ["node", "src/cli.js", "jump", "16"]
+
+[[actions]]
+id = "jump-17"
+title = "Прыжок по горячей клавише 17"
+command = ["node", "src/cli.js", "jump", "17"]
+
+[[actions]]
+id = "jump-18"
+title = "Прыжок по горячей клавише 18"
+command = ["node", "src/cli.js", "jump", "18"]
+
+[[actions]]
+id = "jump-19"
+title = "Прыжок по горячей клавише 19"
+command = ["node", "src/cli.js", "jump", "19"]
+
+[[actions]]
+id = "jump-20"
+title = "Прыжок по горячей клавише 20"
+command = ["node", "src/cli.js", "jump", "20"]
+
+[[actions]]
+id = "jump-21"
+title = "Прыжок по горячей клавише 21"
+command = ["node", "src/cli.js", "jump", "21"]
+
+[[actions]]
+id = "jump-22"
+title = "Прыжок по горячей клавише 22"
+command = ["node", "src/cli.js", "jump", "22"]
+
+[[actions]]
+id = "jump-23"
+title = "Прыжок по горячей клавише 23"
+command = ["node", "src/cli.js", "jump", "23"]
+
+[[actions]]
+id = "jump-24"
+title = "Прыжок по горячей клавише 24"
+command = ["node", "src/cli.js", "jump", "24"]
+
+[[actions]]
+id = "jump-25"
+title = "Прыжок по горячей клавише 25"
+command = ["node", "src/cli.js", "jump", "25"]
+
+[[actions]]
+id = "jump-26"
+title = "Прыжок по горячей клавише 26"
+command = ["node", "src/cli.js", "jump", "26"]
+
+[[actions]]
+id = "jump-27"
+title = "Прыжок по горячей клавише 27"
+command = ["node", "src/cli.js", "jump", "27"]
+
+[[actions]]
+id = "jump-28"
+title = "Прыжок по горячей клавише 28"
+command = ["node", "src/cli.js", "jump", "28"]
+
+[[actions]]
+id = "jump-29"
+title = "Прыжок по горячей клавише 29"
+command = ["node", "src/cli.js", "jump", "29"]
+
+[[actions]]
+id = "jump-30"
+title = "Прыжок по горячей клавише 30"
+command = ["node", "src/cli.js", "jump", "30"]
 
 [[panes]]
 id = "panel"

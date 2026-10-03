@@ -1,6 +1,7 @@
 'use strict';
-// Edit herdr's config.toml: replace the Spaces rows with our rows and add one
-// key binding, both between marker comments, and undo that exactly.
+// Edit herdr's config.toml: replace the Spaces rows with our rows and add our
+// key bindings (the window and the jump hotkeys), both between marker comments,
+// and undo that exactly.
 const BEGIN = '# >>> anton.sidebar (плагин «Категории и дежурства»; откат: node sidebar/src/cli.js uninstall)';
 const END = '# <<< anton.sidebar';
 const KEYS_BEGIN = '# >>> anton.sidebar keys';
@@ -10,20 +11,19 @@ const KEYS_END = '# <<< anton.sidebar keys';
 // reports $section, and a row with no value is not drawn at all.
 const STYLED_ROWS = [
   '  [{ token = "$section", fg = "#fabd2f", bold = true }],',
-  '  ["state_icon", "workspace"],',
+  '  ["state_icon", "workspace", { token = "$key", fg = "#83a598" }],',
   '  ["branch", "git_status"],',
   '  [{ token = "$project", dim = true }],',
   '  [{ token = "$duty", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }, { starts_with = "◆", fg = "#b8bb26" }] }],',
 ];
-const KEYS_BLOCK = [
-  KEYS_BEGIN,
+const OPEN_BINDING = [
   '[[keys.command]]',
   'key = "prefix+shift+s"',
   'type = "plugin_action"',
   'command = "anton.sidebar.open"',
   'description = "категории и дежурства"',
-  KEYS_END,
 ];
+const keysBlock = (extra = []) => [KEYS_BEGIN, ...OPEN_BINDING, ...extra, KEYS_END];
 const squash = s => s.replace(/\s+/g, '');
 const DEFAULT_ROWS = new Set(['["state_icon","workspace"]', '["branch","git_status"]']);
 // Rows written by this or an earlier version of the plugin; a refresh drops them.
@@ -142,7 +142,7 @@ function patchConfig(text) {
     lines.splice(at, 0, '[ui.sidebar.spaces]', ...rowsBlock([]));
   }
   const at = lines.length && lines[lines.length - 1] === '' ? lines.length - 1 : lines.length;
-  lines.splice(at, 0, ...KEYS_BLOCK);
+  lines.splice(at, 0, ...keysBlock());
   return { text: lines.join(eol), originalRows, hadTable };
 }
 
@@ -155,6 +155,16 @@ function refreshConfig(text) {
   if (b < 0 || e <= b) throw new Error('not installed');
   const extra = topLevelElements(lines.slice(b + 1, e).join('\n')).filter(x => !OUR_ROWS.has(squash(x)));
   lines.splice(b, e - b + 1, ...rowsBlock(extra));
+  return lines.join(eol);
+}
+
+// Put the hotkey bindings (extra lines) into the installed keys block.
+function setKeysBlock(text, extra) {
+  const { eol, lines } = splitLines(text);
+  const b = lines.findIndex(l => l.trim() === KEYS_BEGIN);
+  const e = lines.findIndex(l => l.trim() === KEYS_END);
+  if (b < 0 || e <= b) throw new Error('not installed');
+  lines.splice(b, e - b + 1, ...keysBlock(extra));
   return lines.join(eol);
 }
 
@@ -173,4 +183,4 @@ function unpatchConfig(text, { originalRows, hadTable }) {
   return lines.join(eol);
 }
 
-module.exports = { BEGIN, END, KEYS_BEGIN, KEYS_END, patchConfig, refreshConfig, unpatchConfig, _internal: { topLevelElements, findRows } };
+module.exports = { BEGIN, END, KEYS_BEGIN, KEYS_END, patchConfig, refreshConfig, setKeysBlock, unpatchConfig, _internal: { topLevelElements, findRows } };
