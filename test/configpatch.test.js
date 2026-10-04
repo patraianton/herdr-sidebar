@@ -33,7 +33,7 @@ test('patch replaces rows, keeps $kran and other content, adds the key binding',
   assert.ok(r.text.includes('\r\n'), 'keeps CRLF');
   const t = r.text;
   assert.ok(t.includes(cp.BEGIN) && t.includes(cp.END));
-  assert.ok(t.includes('  [{ token = "$section", fg = "#fabd2f", bold = true }],\r\n  ["state_icon", "workspace", { token = "$key", fg = "#83a598" }],'), 'title row first, then the name row with its hotkey');
+  assert.ok(t.includes('  [{ token = "$section", fg = "#fabd2f", bold = true }],\r\n  ["state_icon", { token = "$star", fg = "#fabd2f" }, "workspace", { token = "$key", fg = "#83a598" }],'), 'title row first, then the name row with its star and hotkey');
   assert.ok(!t.includes('starts_with = "━━"'), 'no title-workspace styling');
   assert.ok(t.includes('[{ token = "$project", dim = true }],'));
   assert.ok(t.includes('token = "$duty"'));
@@ -146,11 +146,55 @@ test('setKeysBlock puts hotkey bindings after the window binding and keeps the r
   assert.throws(() => cp.setKeysBlock(ANTON, extra), /not installed/);
 });
 
-test('refresh turns the old plain name row into the row with the hotkey', () => {
-  const old = cp.patchConfig(ANTON).text.replace('["state_icon", "workspace", { token = "$key", fg = "#83a598" }]', '["state_icon", "workspace"]');
-  assert.ok(!old.includes('$key'));
+test('refresh turns the old plain name row into the row with the star and the hotkey', () => {
+  const old = cp.patchConfig(ANTON).text.replace('["state_icon", { token = "$star", fg = "#fabd2f" }, "workspace", { token = "$key", fg = "#83a598" }]', '["state_icon", "workspace"]');
+  assert.ok(!old.includes('$key') && !old.includes('$star'));
   const t = cp.refreshConfig(old);
   assert.equal(t.match(/"state_icon"/g).length, 1);
   assert.ok(t.includes('{ token = "$key"'));
   assert.ok(t.includes('  ["$kran"],'));
+});
+
+test('the keys block carries the star key, Alt+` and Alt+Ё for the Russian layout', () => {
+  const t = cp.patchConfig(ANTON).text;
+  const block = t.slice(t.indexOf(cp.KEYS_BEGIN), t.indexOf(cp.KEYS_END));
+  for (const k of cp.STAR_KEYS) {
+    assert.ok(block.includes(`key = "${k}"\r\ntype = "plugin_action"\r\ncommand = "anton.sidebar.star-next"`), k);
+  }
+  assert.deepEqual(cp.STAR_KEYS, ['alt+backtick', 'alt+ё']);
+});
+
+test('refresh turns the name row with the hotkey into the row with the star', () => {
+  const old = cp.patchConfig(ANTON).text.replace('["state_icon", { token = "$star", fg = "#fabd2f" }, "workspace", { token = "$key", fg = "#83a598" }]', '["state_icon", "workspace", { token = "$key", fg = "#83a598" }]');
+  assert.ok(!old.includes('$star'));
+  const t = cp.refreshConfig(old);
+  assert.equal(t.match(/"state_icon"/g).length, 1);
+  assert.ok(t.includes('["state_icon", { token = "$star", fg = "#fabd2f" }, "workspace", { token = "$key", fg = "#83a598" }]'));
+});
+
+test('refresh brings the keys block up to date and keeps the hotkeys in it', () => {
+  const r = cp.patchConfig(ANTON);
+  const jump = ['[[keys.command]]', 'key = "alt+1"', 'type = "plugin_action"', 'command = "anton.sidebar.jump-1"', 'description = "прыжок: a"'];
+  const fresh = cp.setKeysBlock(r.text, jump);
+  // a block written by the previous version: the window binding and the hotkeys only
+  const b = fresh.indexOf(cp.KEYS_BEGIN);
+  const e = fresh.indexOf(cp.KEYS_END);
+  const old = fresh.slice(0, b) + [cp.KEYS_BEGIN, '[[keys.command]]', 'key = "prefix+shift+s"', 'type = "plugin_action"',
+    'command = "anton.sidebar.open"', 'description = "категории и дежурства"', ...jump].join('\r\n') + '\r\n' + fresh.slice(e);
+  assert.ok(!old.includes('star-next'));
+  const t = cp.refreshConfig(old);
+  assert.equal(t, fresh);
+  assert.equal(cp.refreshConfig(t), t, 'a second refresh changes nothing');
+  assert.equal(cp.unpatchConfig(t, r), ANTON);
+});
+
+test('refresh adds a keys block when an old install has none', () => {
+  const r = cp.patchConfig(ANTON);
+  const b = r.text.indexOf(cp.KEYS_BEGIN);
+  const e = r.text.indexOf(cp.KEYS_END) + cp.KEYS_END.length;
+  const old = r.text.slice(0, b) + r.text.slice(e + 2);
+  assert.ok(!old.includes(cp.KEYS_BEGIN));
+  const t = cp.refreshConfig(old);
+  assert.ok(t.includes(cp.KEYS_BEGIN) && t.includes('anton.sidebar.star-next') && t.includes('anton.sidebar.open'));
+  assert.equal(cp.refreshConfig(t), t);
 });

@@ -25,6 +25,10 @@ const CONFIG_DIR = path.join(LAB, 'config');
 const SESSION_DIR = paths.sessionDir(STATE_DIR, SOCK);
 // The plugin is linked for every session: keep the real helper out of this one.
 const REAL_SESSION_DIR = paths.sessionDir(path.join(process.env.LOCALAPPDATA, 'herdr', 'plugins', 'anton.sidebar'), SOCK);
+// A second session whose pane runs a client of the lab session: real key presses, a readable sidebar.
+const VIEW = 'sbview';
+const VIEW_SOCK = path.join(APPDATA, 'herdr', 'sessions', VIEW, 'herdr.sock');
+const VIEW_REAL_DIR = paths.sessionDir(path.join(process.env.LOCALAPPDATA, 'herdr', 'plugins', 'anton.sidebar'), VIEW_SOCK);
 
 const env = { ...process.env, HERDR_CONFIG_PATH: path.join(LAB, 'herdr-config.toml') };
 for (const k of Object.keys(env)) if (k.startsWith('HERDR_') && !['HERDR_BIN_PATH', 'HERDR_CONFIG_PATH'].includes(k)) delete env[k];
@@ -91,12 +95,14 @@ async function main() {
   const before = await defaultCount().catch(() => null);
   console.log(`default session workspaces before: ${before}`);
   const exists = spawnSync(HERDR, ['session', 'list'], { env, encoding: 'utf8' }).stdout || '';
-  if (exists.split(/\r?\n/).some(l => l.trim().startsWith(SESSION))) throw new Error(`session ${SESSION} already exists; delete it first`);
+  for (const s of [SESSION, VIEW]) {
+    if (exists.split(/\r?\n/).some(l => l.trim().startsWith(s))) throw new Error(`session ${s} already exists; delete it first`);
+  }
 
   fs.rmSync(LAB, { recursive: true, force: true });
   for (const d of ['repoA', 'plain1', 'plain2', 'elsewhere', 'wt', 'config']) fs.mkdirSync(path.join(LAB, d), { recursive: true });
   // installed as cli.js install would do it, so the helper can write hotkeys
-  fs.writeFileSync(env.HERDR_CONFIG_PATH, configpatch.patchConfig('onboarding = false\n[ui.toast]\ndelivery = "herdr"\n').text);
+  fs.writeFileSync(env.HERDR_CONFIG_PATH, configpatch.patchConfig('onboarding = false\n[ui.toast]\ndelivery = "herdr"\n[server]\nheadless_cols = 150\nheadless_rows = 40\n').text);
   fs.writeFileSync(path.join(CONFIG_DIR, 'install.json'), JSON.stringify({ configFile: env.HERDR_CONFIG_PATH, originalRows: null, hadTable: false }));
   fs.writeFileSync(path.join(CONFIG_DIR, 'settings.json'), JSON.stringify({ tickSec: 2, graceMin: 0, missingMin: 0.1, blockedMin: 0.1, silenceMarginMin: 0.1 }));
   const repo = path.join(LAB, 'repoA');
@@ -326,6 +332,50 @@ async function main() {
     await waitFor('plain1 focused', async () => await focusedId() === p1);
   });
 
+  await step('stars: shown in the sidebar, Alt+` walks through them from a real key press', async () => {
+    const ws = await list();
+    const id = l => byLabel(ws, l).workspace_id;
+    await helper('star.toggle', { wsId: id('plain2') });
+    await helper('star.toggle', { wsId: id('repoA') });
+    await waitFor('star tokens', async () => {
+      const l = await list();
+      return (byLabel(l, 'plain2').tokens || {}).star === '★' && (byLabel(l, 'repoA').tokens || {}).star === '★'
+        && !(byLabel(l, 'plain1').tokens || {}).star;
+    });
+    const cfg = fs.readFileSync(env.HERDR_CONFIG_PATH, 'utf8');
+    assert(/key = "alt\+backtick"\s+type = "plugin_action"\s+command = "anton\.sidebar\.star-next"/.test(cfg), 'Alt+` binding missing');
+    const order = (await labelsInOrder()).filter(l => ['plain1', 'plain2', 'repoA'].includes(l)).join('|');
+    assert(order === 'plain2|plain1|repoA', `order ${order}`);
+    fs.copyFileSync(path.join(SESSION_DIR, 'state.json'), path.join(REAL_SESSION_DIR, 'state.json'));
+    await api('workspace.focus', { workspace_id: id('plain1') });
+    await waitFor('plain1 focused', async () => await focusedId() === id('plain1'));
+    h('plugin', 'action', 'invoke', 'anton.sidebar.star-next');
+    await waitFor('repoA focused', async () => await focusedId() === id('repoA'));
+    h('plugin', 'action', 'invoke', 'anton.sidebar.star-next');
+    await waitFor('round to plain2', async () => await focusedId() === id('plain2'));
+
+    fs.mkdirSync(VIEW_REAL_DIR, { recursive: true });
+    fs.writeFileSync(path.join(VIEW_REAL_DIR, paths.OFF_MARKER), '');
+    spawn(HERDR, ['--session', VIEW, 'server'], { env, detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    await waitFor('viewer ping', async () => { await rpc.call(VIEW_SOCK, 'ping', {}); return true; }, 30000);
+    const v = (...args) => spawnSync(HERDR, ['--session', VIEW, ...args], { env, encoding: 'utf8', windowsHide: true }).stdout || '';
+    const vws = JSON.parse(v('workspace', 'create', '--cwd', LAB, '--label', 'viewer')).result.workspace.workspace_id;
+    const vpane = (await rpc.call(VIEW_SOCK, 'pane.list', { workspace_id: vws })).panes[0].pane_id;
+    v('pane', 'zoom', vpane, '--mode', 'on');
+    v('pane', 'run', vpane, `node "${path.join(__dirname, 'attach.js')}" ${SESSION}`);
+    const screen = () => v('pane', 'read', vpane, '--source', 'visible', '--lines', '45');
+    await waitFor('star drawn before the name', async () => /★ · plain2/.test(screen()) && /★ · repoA/.test(screen()), 20000)
+      .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    assert(!/★ · plain1/.test(screen()), 'plain1 has a star');
+    const before = await focusedId();
+    const want = before === id('repoA') ? id('plain2') : id('repoA');
+    v('pane', 'send-keys', vpane, 'alt+backtick');
+    await waitFor('Alt+` moved to the next star', async () => await focusedId() === want, 15000);
+    const next = want === id('repoA') ? id('plain2') : id('repoA');
+    v('pane', 'send-keys', vpane, 'alt+ё');
+    await waitFor('Alt+Ё moved to the next star', async () => await focusedId() === next, 15000);
+  });
+
   await step('window opens, shows categories, help and quits', async () => {
     const w = byLabel(await list(), 'plain1');
     const pane = (await api('pane.list', { workspace_id: w.workspace_id })).panes[0];
@@ -334,6 +384,7 @@ async function main() {
     await waitFor('window drawn', async () => /Категории и дежурства/.test(screen()) && /РЕКЛАМА/.test(screen()), 20000);
     await waitFor('key on its row', async () => /plain1.*Alt\+1/.test(screen()), 10000)
       .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    assert(/★\s+plain2/.test(screen()) && !/★\s+plain1/.test(screen()), `star in the window:\n${screen()}`);
     h('pane', 'send-keys', pane.pane_id, '?');
     await waitFor('help', async () => /Помощь/.test(screen()), 10000);
     h('pane', 'send-keys', pane.pane_id, 'esc');
@@ -351,7 +402,7 @@ async function main() {
     await waitFor('helper gone', async () => { try { await helper('ping'); return false; } catch { return true; } }, 15000);
     const ws = await list();
     assert(!ws.some(w => /^━━ /.test(w.label)), 'headers left');
-    assert(!ws.some(w => w.tokens && (w.tokens.section || w.tokens.project || w.tokens.duty || w.tokens.key)), 'tokens left');
+    assert(!ws.some(w => w.tokens && (w.tokens.section || w.tokens.project || w.tokens.duty || w.tokens.key || w.tokens.star)), 'tokens left');
     const ids = ws.map(w => w.workspace_id);
     const known = ids.filter(id => orig.includes(id));
     assert(known.join('|') === orig.filter(id => ids.includes(id)).join('|'), `order ${known.join(',')} vs ${orig.join(',')}`);
@@ -360,9 +411,12 @@ async function main() {
 
 async function cleanup() {
   if (daemon && daemon.exitCode === null) { try { await helper('shutdown'); } catch {} }
-  if (KEEP) { console.log(`--keep: session ${SESSION} and ${LAB} left for inspection`); return; }
-  spawnSync(HERDR, ['--session', SESSION, 'session', 'stop', SESSION], { env, encoding: 'utf8', windowsHide: true });
-  spawnSync(HERDR, ['session', 'delete', SESSION], { env, encoding: 'utf8', windowsHide: true });
+  if (KEEP) { console.log(`--keep: sessions ${SESSION}, ${VIEW} and ${LAB} left for inspection`); return; }
+  for (const s of [VIEW, SESSION]) {
+    spawnSync(HERDR, ['--session', s, 'session', 'stop', s], { env, encoding: 'utf8', windowsHide: true });
+    spawnSync(HERDR, ['session', 'delete', s], { env, encoding: 'utf8', windowsHide: true });
+  }
+  fs.rmSync(VIEW_REAL_DIR, { recursive: true, force: true });
   const repo = path.join(LAB, 'repoA');
   if (fs.existsSync(repo)) {
     for (const wt of ['wt1', 'wt2']) spawnSync('git', ['worktree', 'remove', '--force', path.join(LAB, 'wt', wt)], { cwd: repo });

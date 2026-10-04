@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 // Background helper, one per herdr session: keeps the Spaces order, publishes
-// the $section/$project/$duty/$key tokens, watches duty agents, keeps the jump
+// the $section/$project/$duty/$key/$star tokens, watches duty agents, keeps the jump
 // hotkeys in config.toml and serves the window and CLI. Category titles are $section tokens drawn on top of the first project
 // of each category; earlier versions used separate title workspaces, which the
 // helper now closes.
@@ -19,12 +19,13 @@ const notify = require('./notify');
 const ops = require('./ops');
 const hotkeys = require('./hotkeys');
 const configpatch = require('./configpatch');
+const stars = require('./stars');
 
 const SUBSCRIPTIONS = [
   'workspace.created', 'workspace.closed', 'workspace.moved', 'workspace.reordered', 'workspace.renamed',
   'worktree.created', 'worktree.opened', 'worktree.removed',
 ].map(type => ({ type }));
-const TOKEN_KEYS = ['section', 'project', 'duty', 'key'];
+const TOKEN_KEYS = ['section', 'project', 'duty', 'key', 'star'];
 const NOT_INSTALLED = 'Плагин не установлен в настройки herdr. Запустите: node sidebar/src/cli.js install';
 
 // config.toml access for the hotkeys; tests pass their own.
@@ -233,6 +234,8 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       const rt = hotkeys.refreshTabs(state.hotkeys, tabsByWs, !continuityBroken);
       if (rt.changed) { state.hotkeys = rt.hotkeys; log('hotkey tabs followed a rename or a new id'); }
     }
+    const rs = hotkeys.refreshTargets(state.stars || [], snap.workspaces, snap.paths, !continuityBroken);
+    if (rs.changed) { state.stars = rs.hotkeys; log('stars followed a rename or a new id'); }
     last.snap = snap;
     last.units = units;
     last.sections = model.sectionTokens(state, units, state.lastApplied);
@@ -253,6 +256,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     for (const [wsId, d] of Object.entries(state.detached)) put(wsId, 'project', `⎇ ${d.parentLabel}`);
     for (const d of Object.values(state.duty)) if (d.wsId) put(d.wsId, 'duty', duty.dutyToken(d));
     for (const [wsId, list] of keysByWs()) put(wsId, 'key', list.map(k => k.display).join(' '));
+    for (const wsId of starred(snap)) put(wsId, 'star', '★');
     return want;
   }
 
@@ -396,11 +400,14 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     return by;
   }
 
+  const starred = snap => stars.starredIds(state.stars, snap.workspaces, snap.paths);
+
   const usedElsewhere = () => {
     const file = keysConfig.file();
     if (!file) throw new Error(NOT_INSTALLED);
     const used = hotkeys.usedKeys(keysConfig.read(file), keysConfig.defaults(), configpatch.KEYS_BEGIN, configpatch.KEYS_END);
     used.set(hotkeys.normKey(configpatch.OPEN_KEY), 'окно плагина «Категории и дежурства»');
+    for (const k of configpatch.STAR_KEYS) used.set(hotkeys.normKey(k), 'переход по звёздочкам');
     return used;
   };
 
@@ -444,12 +451,14 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     }));
     const keys = keysByWs();
     const keysOf = wsId => keys.get(wsId) || [];
+    const starSet = starred(last.snap);
     const unitView = u => ({
       key: u.key, kind: u.kind, label: u.label, anchorId: u.anchorId, wsIds: u.wsIds, linked: !!u.linked,
       detached: state.detached[u.anchorId] ? { parentLabel: state.detached[u.anchorId].parentLabel } : null,
-      duty: dutyOf(u.anchorId), agents: agentsOf(u.anchorId), keys: keysOf(u.anchorId),
+      duty: dutyOf(u.anchorId), agents: agentsOf(u.anchorId), keys: keysOf(u.anchorId), starred: starSet.has(u.anchorId),
       children: u.children.map(ch => ({
         wsId: ch.wsId, label: ch.label, duty: dutyOf(ch.wsId), agents: agentsOf(ch.wsId), keys: keysOf(ch.wsId),
+        starred: starSet.has(ch.wsId),
       })),
     });
     const assigned = new Set();
@@ -602,6 +611,18 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       state.hotkeys = next;
       log('hotkey cleared', k);
       return { reloaded };
+    },
+    // A star marks an important workspace; Alt+` walks through the starred ones.
+    'star.toggle': async ({ wsId }) => {
+      const snap = last.snap || await snapshot();
+      const w = snap.byId.get(wsId);
+      if (!w) throw new Error('Этого рабочего места уже нет.');
+      const list = state.stars || [];
+      const mine = list.filter(s => (hotkeys.findWorkspace(s.target, snap.workspaces, snap.paths) || {}).workspace_id === wsId);
+      state.stars = mine.length ? list.filter(s => !mine.includes(s))
+        : [...list, { target: { wsId, label: w.label, path: hotkeys.wsPath(w, snap.paths) } }];
+      log('star', mine.length ? 'off' : 'on', wsId);
+      return { starred: !mine.length, label: w.label, count: state.stars.length };
     },
     'duty.status': async () => Object.values(state.duty).map(d => ({
       id: d.id, label: d.label, wsId: d.wsId, every: duty.fmtDur(d.everyMs), token: duty.dutyToken(d), alert: d.alert,

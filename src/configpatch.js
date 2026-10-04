@@ -1,7 +1,7 @@
 'use strict';
 // Edit herdr's config.toml: replace the Spaces rows with our rows and add our
-// key bindings (the window and the jump hotkeys), both between marker comments,
-// and undo that exactly.
+// key bindings (the window, the star key and the jump hotkeys), both between
+// marker comments, and undo that exactly.
 const BEGIN = '# >>> anton.sidebar (плагин «Категории и дежурства»; откат: node sidebar/src/cli.js uninstall)';
 const END = '# <<< anton.sidebar';
 const KEYS_BEGIN = '# >>> anton.sidebar keys';
@@ -11,20 +11,22 @@ const KEYS_END = '# <<< anton.sidebar keys';
 // reports $section, and a row with no value is not drawn at all.
 const STYLED_ROWS = [
   '  [{ token = "$section", fg = "#fabd2f", bold = true }],',
-  '  ["state_icon", "workspace", { token = "$key", fg = "#83a598" }],',
+  '  ["state_icon", { token = "$star", fg = "#fabd2f" }, "workspace", { token = "$key", fg = "#83a598" }],',
   '  ["branch", "git_status"],',
   '  [{ token = "$project", dim = true }],',
   '  [{ token = "$duty", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }, { starts_with = "◆", fg = "#b8bb26" }] }],',
 ];
 const OPEN_KEY = 'prefix+shift+s';
-const OPEN_BINDING = [
-  '[[keys.command]]',
-  `key = "${OPEN_KEY}"`,
-  'type = "plugin_action"',
-  'command = "anton.sidebar.open"',
-  'description = "категории и дежурства"',
+// Alt+` goes to the next starred workspace; on the Russian layout the same key is Ё.
+const STAR_KEYS = ['alt+backtick', 'alt+ё'];
+const binding = (key, action, description) => [
+  '[[keys.command]]', `key = "${key}"`, 'type = "plugin_action"', `command = "anton.sidebar.${action}"`, `description = "${description}"`,
 ];
-const keysBlock = (extra = []) => [KEYS_BEGIN, ...OPEN_BINDING, ...extra, KEYS_END];
+const FIXED_BINDINGS = [
+  ...binding(OPEN_KEY, 'open', 'категории и дежурства'),
+  ...STAR_KEYS.flatMap(k => binding(k, 'star-next', 'следующий проект со звёздочкой')),
+];
+const keysBlock = (extra = []) => [KEYS_BEGIN, ...FIXED_BINDINGS, ...extra, KEYS_END];
 const squash = s => s.replace(/\s+/g, '');
 const DEFAULT_ROWS = new Set(['["state_icon","workspace"]', '["branch","git_status"]']);
 // Rows written by this or an earlier version of the plugin; a refresh drops them.
@@ -32,6 +34,7 @@ const OUR_ROWS = new Set([
   ...DEFAULT_ROWS,
   ...STYLED_ROWS.map(r => squash(r).replace(/,$/, '')),
   squash('["state_icon", { token = "workspace", rules = [{ starts_with = "━━", fg = "#fabd2f", bold = true }] }]'),
+  squash('["state_icon", "workspace", { token = "$key", fg = "#83a598" }]'),
 ]);
 const TABLE_RE = /^\s*\[\[?\s*[A-Za-z0-9_."-]+(\s*\.\s*[A-Za-z0-9_."-]+)*\s*\]\]?\s*(#.*)?$/;
 
@@ -147,8 +150,20 @@ function patchConfig(text) {
   return { text: lines.join(eol), originalRows, hadTable };
 }
 
-// Rewrite the installed rows block to the current rows, keeping rows the
-// person added inside it. Uninstall still restores the rows saved at install.
+// The hotkey bindings inside the keys block: [[keys.command]] entries that
+// point at a jump action. Everything else there is written by keysBlock.
+function jumpBindings(inner) {
+  const chunks = [];
+  for (const l of inner) {
+    if (l.trim() === '[[keys.command]]' || !chunks.length) chunks.push([]);
+    chunks[chunks.length - 1].push(l);
+  }
+  return chunks.filter(c => c.some(l => /^\s*command\s*=\s*"anton\.sidebar\.jump-\d+"/.test(l))).flat();
+}
+
+// Rewrite the installed blocks to this version: the rows (keeping rows the
+// person added inside the block) and the fixed key bindings (keeping the
+// hotkeys). Uninstall still restores the rows saved at install.
 function refreshConfig(text) {
   const { eol, lines } = splitLines(text);
   const b = lines.findIndex(l => l.trim() === BEGIN);
@@ -156,6 +171,14 @@ function refreshConfig(text) {
   if (b < 0 || e <= b) throw new Error('not installed');
   const extra = topLevelElements(lines.slice(b + 1, e).join('\n')).filter(x => !OUR_ROWS.has(squash(x)));
   lines.splice(b, e - b + 1, ...rowsBlock(extra));
+  const kb = lines.findIndex(l => l.trim() === KEYS_BEGIN);
+  const ke = lines.findIndex(l => l.trim() === KEYS_END);
+  if (kb >= 0 && ke > kb) {
+    lines.splice(kb, ke - kb + 1, ...keysBlock(jumpBindings(lines.slice(kb + 1, ke))));
+  } else {
+    const at = lines.length && lines[lines.length - 1] === '' ? lines.length - 1 : lines.length;
+    lines.splice(at, 0, ...keysBlock());
+  }
   return lines.join(eol);
 }
 
@@ -184,4 +207,4 @@ function unpatchConfig(text, { originalRows, hadTable }) {
   return lines.join(eol);
 }
 
-module.exports = { BEGIN, END, KEYS_BEGIN, KEYS_END, OPEN_KEY, patchConfig, refreshConfig, setKeysBlock, unpatchConfig, _internal: { topLevelElements, findRows } };
+module.exports = { BEGIN, END, KEYS_BEGIN, KEYS_END, OPEN_KEY, STAR_KEYS, patchConfig, refreshConfig, setKeysBlock, unpatchConfig, _internal: { topLevelElements, findRows } };

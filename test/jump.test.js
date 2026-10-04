@@ -54,3 +54,20 @@ test('a missing tab opens the project and says why', async () => {
   assert.deepEqual(h.calls.map(c => c[0]), ['ws', 'notify']);
   assert.match(h.calls[1][1], /F5: вкладки «bots» нет/);
 });
+
+const { starJump } = require('../src/cli');
+const starState = list => ({ stars: list.map(([wsId, label]) => ({ target: { wsId, label } })) });
+
+test('the star key goes to the next starred project down the sidebar', async () => {
+  const h = fake([{ workspace_id: 'w1', label: 'a', focused: true }, { workspace_id: 'w2', label: 'b' }, { workspace_id: 'w3', label: 'c' }]);
+  assert.equal(await starJump(h, starState([['w1', 'a'], ['w3', 'c']])), 'w3');
+  assert.deepEqual(h.calls, [['ws', 'w3']]);
+});
+
+test('no stars, or none of them open: only a notice', async () => {
+  const h = fake([{ workspace_id: 'w1', label: 'a', focused: true }]);
+  assert.equal(await starJump(h, starState([])), 'none');
+  assert.equal(await starJump(h, starState([['w7', 'gone']])), 'missing');
+  assert.deepEqual(h.calls.map(c => c[0]), ['notify', 'notify']);
+  assert.match(h.calls[0][2], /prefix\+shift\+s/);
+});

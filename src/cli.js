@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 // Command line: `herdr-duty ...` for agents, install/uninstall/status/open for people,
-// `jump N` for the hotkeys (herdr runs it through the action jump-N).
+// `jump N` for the hotkeys (herdr runs it through the action jump-N) and
+// `star-next` for Alt+` (the action star-next).
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -11,6 +12,7 @@ const paths = require('./paths');
 const store = require('./store');
 const configpatch = require('./configpatch');
 const hotkeys = require('./hotkeys');
+const stars = require('./stars');
 const { makeHerdr, PLUGIN_ID } = require('./herdr');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -117,8 +119,27 @@ function removeShims() {
   for (const f of ['herdr-duty.cmd', 'herdr-duty']) { try { fs.unlinkSync(path.join(BIN_DIR, f)); } catch {} }
 }
 
-// Already installed: bring the sidebar rows up to this version.
-function refreshInstall(cfg) {
+// A helper still running the old code would write its old key bindings back
+// on the next hotkey change, so after a refresh it is started again.
+async function restartHelper() {
+  const sock = process.env.HERDR_SOCKET_PATH;
+  if (!sock) { say('Помощник плагина остался на старом коде: перезапустите herdr или выполните install из окна herdr.'); return; }
+  const pipe = paths.daemonPipe(sock);
+  const alive = async () => { try { return await ipc.request(pipe, 'ping', {}, 2000); } catch { return null; } };
+  if (await alive()) {
+    try { await ipc.request(pipe, 'shutdown', {}, 3000); } catch {}
+    for (let i = 0; i < 40 && await alive(); i++) await sleep(250);
+  }
+  try {
+    const p = await helper('ping', {});
+    say(`Помощник плагина перезапущен на новом коде (pid ${p.pid}).`);
+  } catch (e) {
+    say(`Помощник плагина не запустился: ${e.message}`);
+  }
+}
+
+// Already installed: bring the sidebar rows and the fixed key bindings up to this version.
+async function refreshInstall(cfg) {
   const text = fs.readFileSync(cfg, 'utf8');
   let next;
   try { next = configpatch.refreshConfig(text); } catch (e) { fail(`Не нашёл в ${cfg} строк плагина: ${e.message}`); }
@@ -133,8 +154,9 @@ function refreshInstall(cfg) {
   }
   writeShims();
   const rl = herdrRun(['server', 'reload-config']);
-  say(`Строки боковой панели обновлены (копия: ${backup}).`);
+  say(`Настройки плагина в herdr обновлены (копия: ${backup}).`);
   say(rl.status === 0 ? 'herdr перечитал настройки.' : `herdr не перечитал настройки: ${(rl.stderr || rl.stdout || '').trim()}`);
+  await restartHelper();
 }
 
 function install() {
@@ -216,6 +238,13 @@ async function open() {
   await makeHerdr(process.env.HERDR_SOCKET_PATH).openPluginPane('panel', wsId ? { SIDEBAR_FOCUS_WS: wsId } : {});
 }
 
+async function workspacesNow(h) {
+  const [workspaces, panes] = await Promise.all([h.listWorkspaces(), h.listPanes()]);
+  const firstCwd = {};
+  for (const p of panes) if (!(p.workspace_id in firstCwd)) firstCwd[p.workspace_id] = p.cwd || '';
+  return { workspaces, firstCwd };
+}
+
 // Focus what hotkey slot N points at. Reads the helper's saved state and talks
 // to herdr directly, so it works even while the helper is restarting.
 async function jumpTo(h, state, slot) {
@@ -224,9 +253,7 @@ async function jumpTo(h, state, slot) {
     await h.notify('Горячая клавиша', 'Эта клавиша ни к чему не привязана. Назначить: prefix+shift+s, строка проекта, k.');
     return 'unbound';
   }
-  const [workspaces, panes] = await Promise.all([h.listWorkspaces(), h.listPanes()]);
-  const firstCwd = {};
-  for (const p of panes) if (!(p.workspace_id in firstCwd)) firstCwd[p.workspace_id] = p.cwd || '';
+  const { workspaces, firstCwd } = await workspacesNow(h);
   const w = hotkeys.findWorkspace(hk.target, workspaces, firstCwd);
   if (!w) {
     await h.notify(`${hotkeys.displayKey(hk.key)}: «${hk.target.label}» не найдено`, 'Проект закрыт или переименован. Назначьте клавишу заново: prefix+shift+s, k.');
@@ -243,12 +270,32 @@ async function jumpTo(h, state, slot) {
   return t.tab_id;
 }
 
-async function jump(slot) {
+// Alt+`: the next starred workspace down the sidebar from the focused one.
+async function starJump(h, state) {
+  if (!(state.stars || []).length) {
+    await h.notify('Звёздочки', 'Нет проектов со звёздочкой. Отметить: prefix+shift+s, строка проекта, s.');
+    return 'none';
+  }
+  const { workspaces, firstCwd } = await workspacesNow(h);
+  const w = stars.nextStar(state.stars, workspaces, firstCwd);
+  if (!w) {
+    await h.notify('Звёздочки', 'Проекты со звёздочкой сейчас закрыты.');
+    return 'missing';
+  }
+  await h.focusWorkspace(w.workspace_id);
+  return w.workspace_id;
+}
+
+function savedState() {
   const sock = process.env.HERDR_SOCKET_PATH;
   const root = process.env.HERDR_PLUGIN_STATE_DIR;
   if (!sock || !root) fail('Прыжок запускается из herdr по горячей клавише.');
-  const state = store.loadState(path.join(paths.sessionDir(root, sock), 'state.json'));
-  await jumpTo(makeHerdr(sock), state, slot);
+  return { h: makeHerdr(sock), state: store.loadState(path.join(paths.sessionDir(root, sock), 'state.json')) };
+}
+
+async function jump(slot) {
+  const { h, state } = savedState();
+  await jumpTo(h, state, slot);
 }
 
 async function main(argv) {
@@ -259,6 +306,7 @@ async function main(argv) {
   if (cmd === 'status') return status();
   if (cmd === 'open') return open();
   if (cmd === 'jump') return jump(rest[0]);
+  if (cmd === 'star-next') { const { h, state } = savedState(); return starJump(h, state); }
   say('Команды: duty …, install, uninstall, status, open');
   say(USAGE);
   return undefined;
@@ -268,4 +316,4 @@ if (require.main === module) {
   main(process.argv.slice(2)).catch(e => fail(e.message));
 }
 
-module.exports = { parseArgs, USAGE, jumpTo };
+module.exports = { parseArgs, USAGE, jumpTo, starJump };

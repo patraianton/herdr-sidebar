@@ -130,17 +130,19 @@ function wsPath(w, paths) {
   return normPath(p);
 }
 
-// The workspace a hotkey points at. The id alone is not proof: after a herdr
-// restart an id can belong to another workspace, so the name decides; among
-// namesakes the folder decides, then the id; an id whose name changed counts
-// only if its folder is still the same (renamed while herdr was down).
+// The workspace a hotkey or a star points at. The id alone is not proof: after
+// a herdr restart an id can belong to another workspace, so the name decides;
+// among namesakes the folder decides, then the id. A namesake in another folder
+// is a different project (two china-cars), not the closed one, unless it has
+// the same id. An id whose name changed counts only if its folder is still the
+// same (renamed while herdr was down).
 function findWorkspace(target, workspaces, paths) {
   const same = workspaces.filter(w => w.label === target.label);
-  if (same.length === 1) return same[0];
-  if (same.length > 1) {
-    return same.find(w => target.path && wsPath(w, paths) === target.path)
-      || same.find(w => w.workspace_id === target.wsId) || same[0];
-  }
+  const inFolder = target.path ? same.filter(w => wsPath(w, paths) === target.path) : [];
+  const hit = inFolder.find(w => w.workspace_id === target.wsId) || inFolder[0]
+    || same.find(w => w.workspace_id === target.wsId);
+  if (hit) return hit;
+  if (same.length) return (target.path ? same.find(w => !wsPath(w, paths)) : same[0]) || null;
   const byId = workspaces.find(w => w.workspace_id === target.wsId);
   if (byId && target.path && wsPath(byId, paths) === target.path) return byId;
   return null;

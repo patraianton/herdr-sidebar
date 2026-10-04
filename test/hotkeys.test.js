@@ -190,3 +190,27 @@ test('review: herdr check lines compare without the binding numbers', () => {
   assert.equal(hk.issueKey('alt+1: kept keys.command[0].key, disabled keys.command[1].key'),
     hk.issueKey('alt+1: kept keys.command[2].key, disabled keys.command[3].key'));
 });
+
+test('review 2: two namesakes in one folder are told apart by id', () => {
+  const ws = [W('w1', 'api'), W('w2', 'api')];
+  const paths = { w1: 'C:/x', w2: 'C:/x' };
+  assert.equal(hk.findWorkspace({ wsId: 'w2', label: 'api', path: 'c:/x' }, ws, paths).workspace_id, 'w2');
+});
+
+test('review 2: a namesake in another folder is not the closed project', () => {
+  const paths = { w2: 'C:/b', w3: 'C:/c' };
+  assert.equal(hk.findWorkspace({ wsId: 'w1', label: 'api', path: 'c:/a' }, [W('w2', 'api')], paths), null);
+  assert.equal(hk.findWorkspace({ wsId: 'w1', label: 'api', path: 'c:/a' }, [W('w2', 'api'), W('w3', 'api')], paths), null);
+  // the same id with the same name is the same project even if its folder changed
+  assert.equal(hk.findWorkspace({ wsId: 'w2', label: 'api', path: 'c:/a' }, [W('w2', 'api')], paths).workspace_id, 'w2');
+  // nothing to compare: the name decides
+  assert.equal(hk.findWorkspace({ wsId: 'w1', label: 'api' }, [W('w2', 'api')], paths).workspace_id, 'w2');
+  assert.equal(hk.findWorkspace({ wsId: 'w1', label: 'api', path: 'c:/a' }, [W('w2', 'api')], {}).workspace_id, 'w2');
+});
+
+test('review 2: a closed target is not handed to a namesake in another folder', () => {
+  const keys = [{ slot: 1, key: 'alt+1', target: { wsId: 'w1', label: 'api', path: 'c:/a' } }];
+  const r = hk.refreshTargets(keys, [W('w2', 'api')], { w2: 'C:/b' }, false);
+  assert.equal(r.changed, false);
+  assert.equal(r.hotkeys[0].target.wsId, 'w1');
+});
