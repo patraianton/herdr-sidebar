@@ -6,6 +6,7 @@ const { spawn } = require('node:child_process');
 const ipc = require('./ipc');
 const paths = require('./paths');
 const core = require('./uicore');
+const stars = require('./stars');
 
 const SOCK = process.env.HERDR_SOCKET_PATH;
 if (!SOCK) { process.stderr.write('Окно плагина открывается из herdr.\n'); process.exit(2); }
@@ -27,8 +28,8 @@ const HELP = [
   'w — вынести копию из проекта / вернуть обратно',
   't — дежурство: включить, сменить интервал, снять',
   'k — горячая клавиша: прыжок к проекту (или к его вкладке) одним нажатием',
-  's — звёздочка: отметить важный проект или снять отметку',
-  'Alt+` (на русской раскладке Alt+Ё) — к следующему проекту со звёздочкой',
+  's — звёздочка: 1 мой проект, 2 первая работа, 3 вторая, 4 третья; или снять',
+  'Alt+1…Alt+4 (окно закрыто) — по кругу между проектами со звёздочкой этого вида',
   'n — новая категория;  r — переименовать;  x — удалить',
   'U — выключить плагин и вернуть всё как было',
   'q или Esc — закрыть окно',
@@ -101,9 +102,9 @@ function formatRow(r, W, selected, dropHint) {
   const color = d ? (d.alert ? A.red + A.bold : A.green) : '';
   const keys = (item.keys || []).map(k => k.display).join(' ');
   const kw = keys ? [...keys].length + 2 : 0;
-  // every head starts with two spaces; a star takes the second one
-  const star = item.starred ? `${A.yellow}★${A.reset}${pre}` : ' ';
-  return pre + head[0] + star + core.fit(head.slice(2) + item.label + extra, W - 2 - rw - kw) + (keys ? `  ${A.cyan}${keys}` : '')
+  // every head starts with two spaces; a star with its number takes them
+  const star = item.star ? `${starColor(item.star)}★${item.star}${A.reset}${pre}` : '  ';
+  return pre + star + core.fit(head.slice(2) + item.label + extra, W - 2 - rw - kw) + (keys ? `  ${A.cyan}${keys}` : '')
     + (right ? `  ${color}${right}` : '') + A.reset;
 }
 
@@ -321,7 +322,7 @@ function keyMenu(m, wsId, tabId, title) {
     let t = `${res.display} → «${res.label}»`;
     if (res.takenFrom) t += `, у «${res.takenFrom}» она снята`;
     if (res.replaced) t += `, прежняя ${res.replaced} снята`;
-    if (res.reloaded === false) t += '. herdr не перечитал настройки: нажмите prefix+shift+r';
+    if (res.reloaded === false) t += '. herdr не перечитал настройки: нажмите Ctrl+B, потом Shift+R';
     return t;
   });
   const items = m.current.map(c => ({
@@ -355,12 +356,27 @@ async function hotkeyFor(r) {
   return undefined;
 }
 
-function starToggle(r) {
+// The sidebar colour of a kind, as a terminal colour.
+function starColor(kind) {
+  const k = stars.KINDS.find(x => x.kind === kind);
+  if (!k) return A.yellow;
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(k.color.slice(i, i + 2), 16));
+  return `\x1b[38;2;${r};${g};${b}m`;
+}
+
+// s: pick the kind of star (the digit picks it straight away) or take it off.
+function starMenu(r) {
   if (!r || r.type === 'cat') return setMsg('Выберите проект.', true);
+  const item = r.type === 'child' ? r.child : r.unit;
   const wsId = r.type === 'child' ? r.child.wsId : r.unit.anchorId;
-  return act(() => call('star.toggle', { wsId }), res => (res.starred
-    ? `★ «${res.label}» отмечен. К следующему проекту со звёздочкой: Alt+\` (Alt+Ё)`
+  const set = kind => act(() => call('star.set', { wsId, kind }), res => (res.kind
+    ? `★${res.kind} «${res.label}»: ${stars.KINDS[res.kind - 1].name}. Переход между ними: Alt+${res.kind}`
     : `Звёздочка с «${res.label}» снята`));
+  const items = stars.KINDS.map(k => ({
+    label: `★${k.kind} ${k.name} — Alt+${k.kind}${item.star === k.kind ? '   (сейчас)' : ''}`, run: () => set(k.kind),
+  }));
+  if (item.star) items.push({ label: 'Снять звёздочку', run: () => set(0) });
+  return menu(`Звёздочка для «${item.label}»`, items, item.star ? item.star - 1 : 0);
 }
 
 function openMenu(r) {
@@ -383,12 +399,12 @@ function openMenu(r) {
     }
     items.push({ label: 'Дежурство…', run: () => dutyMenuFor(r) });
     items.push({ label: 'Горячая клавиша…', run: () => hotkeyFor(r) });
-    items.push({ label: r.unit.starred ? 'Снять звёздочку' : 'Отметить звёздочкой', run: () => starToggle(r) });
+    items.push({ label: 'Звёздочка…', run: () => starMenu(r) });
   } else {
     items.push({ label: 'Вынести из проекта…', run: () => detachOrReturn(r) });
     items.push({ label: 'Дежурство…', run: () => dutyMenuFor(r) });
     items.push({ label: 'Горячая клавиша…', run: () => hotkeyFor(r) });
-    items.push({ label: r.child.starred ? 'Снять звёздочку' : 'Отметить звёздочкой', run: () => starToggle(r) });
+    items.push({ label: 'Звёздочка…', run: () => starMenu(r) });
   }
   const title = r.type === 'cat' ? r.name : (r.type === 'child' ? r.child.label : r.unit.label);
   return menu(title, items);
@@ -468,7 +484,7 @@ function onKey(ev) {
   else if (ch === 'w') detachOrReturn(r);
   else if (ch === 't') dutyMenuFor(r);
   else if (ch === 'k') hotkeyFor(r);
-  else if (ch === 's' || ev.char === '*') starToggle(r);
+  else if (ch === 's' || ev.char === '*') starMenu(r);
   else if (ch === '?' || ev.char === ',') S.mode = { type: 'help', title: 'Помощь' };
   else if (ch === 'U') uninstallFlow();
 }

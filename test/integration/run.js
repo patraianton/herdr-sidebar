@@ -288,16 +288,16 @@ async function main() {
     const p1 = byLabel(ws, 'plain1').workspace_id;
     const p2 = byLabel(ws, 'plain2').workspace_id;
     const menu = await helper('hotkey.menu', { wsId: p1 });
-    assert(menu.choices.length === 21, `choices: ${menu.choices.length}`);
-    await helper('hotkey.set', { key: 'alt+1', wsId: p1 });
+    assert(menu.choices.length === 17, `choices: ${menu.choices.length}`);
+    await helper('hotkey.set', { key: 'alt+5', wsId: p1 });
     const tab = h('tab', 'create', '--workspace', p2, '--label', 'logs', '--no-focus').result.tab.tab_id;
     await helper('hotkey.set', { key: 'f5', wsId: p2, tabId: tab });
     const cfg = fs.readFileSync(env.HERDR_CONFIG_PATH, 'utf8');
-    assert(/key = "alt\+1"\s+type = "plugin_action"\s+command = "anton\.sidebar\.jump-1"/.test(cfg), 'alt+1 binding missing');
+    assert(/key = "alt\+5"\s+type = "plugin_action"\s+command = "anton\.sidebar\.jump-1"/.test(cfg), 'alt+5 binding missing');
     assert(/key = "f5"\s+type = "plugin_action"\s+command = "anton\.sidebar\.jump-2"/.test(cfg), 'f5 binding missing');
     const check = spawnSync(HERDR, ['config', 'check'], { env, encoding: 'utf8' });
     assert(check.status === 0, `config check: ${check.stdout}${check.stderr}`);
-    await waitFor('key token', async () => (byLabel(await list(), 'plain1').tokens || {}).key === 'Alt+1');
+    await waitFor('key token', async () => (byLabel(await list(), 'plain1').tokens || {}).key === 'Alt+5');
     await api('workspace.focus', { workspace_id: byLabel(ws, 'repoA').workspace_id });
     await waitFor('repoA focused', async () => await focusedId() === byLabel(ws, 'repoA').workspace_id);
     jump(1);
@@ -325,34 +325,41 @@ async function main() {
 
   await step('after the restart the hotkey still finds its project and its key shows again', async () => {
     const p1 = byLabel(await list(), 'plain1').workspace_id;
-    await waitFor('key token back', async () => (byLabel(await list(), 'plain1').tokens || {}).key === 'Alt+1', 30000);
+    await waitFor('key token back', async () => (byLabel(await list(), 'plain1').tokens || {}).key === 'Alt+5', 30000);
     await api('workspace.focus', { workspace_id: byLabel(await list(), 'repoA').workspace_id });
     await waitFor('repoA focused', async () => await focusedId() === byLabel(await list(), 'repoA').workspace_id);
     jump(1);
     await waitFor('plain1 focused', async () => await focusedId() === p1);
   });
 
-  await step('stars: shown in the sidebar, Alt+` walks through them from a real key press', async () => {
+  await step('stars of two kinds: shown in the sidebar, Alt+1 and Alt+2 walk through them from real key presses', async () => {
     const ws = await list();
     const id = l => byLabel(ws, l).workspace_id;
-    await helper('star.toggle', { wsId: id('plain2') });
-    await helper('star.toggle', { wsId: id('repoA') });
+    await helper('star.set', { wsId: id('plain2'), kind: 2 });
+    await helper('star.set', { wsId: id('repoA'), kind: 2 });
+    await helper('star.set', { wsId: id('plain1'), kind: 1 });
+    const tok = (l, label) => (byLabel(l, label).tokens || {}).star;
     await waitFor('star tokens', async () => {
       const l = await list();
-      return (byLabel(l, 'plain2').tokens || {}).star === '★' && (byLabel(l, 'repoA').tokens || {}).star === '★'
-        && !(byLabel(l, 'plain1').tokens || {}).star;
+      return tok(l, 'plain2') === '★2' && tok(l, 'repoA') === '★2' && tok(l, 'plain1') === '★1';
     });
     const cfg = fs.readFileSync(env.HERDR_CONFIG_PATH, 'utf8');
-    assert(/key = "alt\+backtick"\s+type = "plugin_action"\s+command = "anton\.sidebar\.star-next"/.test(cfg), 'Alt+` binding missing');
+    for (const n of [1, 2, 3, 4]) {
+      assert(new RegExp(`key = "alt\\+${n}"\\s+type = "plugin_action"\\s+command = "anton\\.sidebar\\.star-${n}"`).test(cfg), `Alt+${n} binding missing`);
+    }
     const order = (await labelsInOrder()).filter(l => ['plain1', 'plain2', 'repoA'].includes(l)).join('|');
     assert(order === 'plain2|plain1|repoA', `order ${order}`);
     fs.copyFileSync(path.join(SESSION_DIR, 'state.json'), path.join(REAL_SESSION_DIR, 'state.json'));
+    const press = async (action, label) => {
+      h('plugin', 'action', 'invoke', `anton.sidebar.${action}`);
+      await waitFor(`${action} → ${label}`, async () => await focusedId() === id(label));
+    };
     await api('workspace.focus', { workspace_id: id('plain1') });
     await waitFor('plain1 focused', async () => await focusedId() === id('plain1'));
-    h('plugin', 'action', 'invoke', 'anton.sidebar.star-next');
-    await waitFor('repoA focused', async () => await focusedId() === id('repoA'));
-    h('plugin', 'action', 'invoke', 'anton.sidebar.star-next');
-    await waitFor('round to plain2', async () => await focusedId() === id('plain2'));
+    await press('star-2', 'plain2'); // from another kind, nothing visited yet: the first of kind 2
+    await press('star-2', 'repoA'); // inside kind 2: the next one down
+    await press('star-1', 'plain1');
+    await press('star-2', 'repoA'); // back to the one visited last
 
     fs.mkdirSync(VIEW_REAL_DIR, { recursive: true });
     fs.writeFileSync(path.join(VIEW_REAL_DIR, paths.OFF_MARKER), '');
@@ -364,16 +371,17 @@ async function main() {
     v('pane', 'zoom', vpane, '--mode', 'on');
     v('pane', 'run', vpane, `node "${path.join(__dirname, 'attach.js')}" ${SESSION}`);
     const screen = () => v('pane', 'read', vpane, '--source', 'visible', '--lines', '45');
-    await waitFor('star drawn before the name', async () => /★ · plain2/.test(screen()) && /★ · repoA/.test(screen()), 20000)
+    // the lab sidebar is narrow: plain1 and plain2 also carry hotkeys, so their names are cut to «plai…»
+    await waitFor('stars drawn before the names', async () => /★2 · plai/.test(screen()) && /★2 · repoA/.test(screen())
+      && /★1 · plai/.test(screen()), 20000)
       .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
-    assert(!/★ · plain1/.test(screen()), 'plain1 has a star');
-    const before = await focusedId();
-    const want = before === id('repoA') ? id('plain2') : id('repoA');
-    v('pane', 'send-keys', vpane, 'alt+backtick');
-    await waitFor('Alt+` moved to the next star', async () => await focusedId() === want, 15000);
-    const next = want === id('repoA') ? id('plain2') : id('repoA');
-    v('pane', 'send-keys', vpane, 'alt+ё');
-    await waitFor('Alt+Ё moved to the next star', async () => await focusedId() === next, 15000);
+    const key = async (k, label) => {
+      v('pane', 'send-keys', vpane, k);
+      await waitFor(`${k} → ${label}`, async () => await focusedId() === id(label), 15000);
+    };
+    await key('alt+1', 'plain1');
+    await key('alt+2', 'repoA');
+    await key('alt+2', 'plain2');
   });
 
   await step('window opens, shows categories, help and quits', async () => {
@@ -382,9 +390,9 @@ async function main() {
     h('pane', 'run', pane.pane_id, `node "${path.join(ROOT, 'src', 'ui.js')}"`);
     const screen = () => h('pane', 'read', pane.pane_id, '--source', 'visible', '--lines', '60');
     await waitFor('window drawn', async () => /Категории и дежурства/.test(screen()) && /РЕКЛАМА/.test(screen()), 20000);
-    await waitFor('key on its row', async () => /plain1.*Alt\+1/.test(screen()), 10000)
+    await waitFor('key on its row', async () => /plain1.*Alt\+5/.test(screen()), 10000)
       .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
-    assert(/★\s+plain2/.test(screen()) && !/★\s+plain1/.test(screen()), `star in the window:\n${screen()}`);
+    assert(/★2\s+plain2/.test(screen()) && /★1\s+plain1/.test(screen()), `stars in the window:\n${screen()}`);
     h('pane', 'send-keys', pane.pane_id, '?');
     await waitFor('help', async () => /Помощь/.test(screen()), 10000);
     h('pane', 'send-keys', pane.pane_id, 'esc');

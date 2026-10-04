@@ -1,7 +1,9 @@
 'use strict';
 // Edit herdr's config.toml: replace the Spaces rows with our rows and add our
-// key bindings (the window, the star key and the jump hotkeys), both between
+// key bindings (the window, the star keys and the jump hotkeys), both between
 // marker comments, and undo that exactly.
+const { KINDS, token } = require('./stars');
+
 const BEGIN = '# >>> anton.sidebar (плагин «Категории и дежурства»; откат: node sidebar/src/cli.js uninstall)';
 const END = '# <<< anton.sidebar';
 const KEYS_BEGIN = '# >>> anton.sidebar keys';
@@ -11,20 +13,20 @@ const KEYS_END = '# <<< anton.sidebar keys';
 // reports $section, and a row with no value is not drawn at all.
 const STYLED_ROWS = [
   '  [{ token = "$section", fg = "#fabd2f", bold = true }],',
-  '  ["state_icon", { token = "$star", fg = "#fabd2f" }, "workspace", { token = "$key", fg = "#83a598" }],',
+  `  ["state_icon", { token = "$star", rules = [${KINDS.map(k => `{ starts_with = "${token(k.kind)}", fg = "${k.color}" }`).join(', ')}] }, "workspace", { token = "$key", fg = "#83a598" }],`,
   '  ["branch", "git_status"],',
   '  [{ token = "$project", dim = true }],',
   '  [{ token = "$duty", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }, { starts_with = "◆", fg = "#b8bb26" }] }],',
 ];
 const OPEN_KEY = 'prefix+shift+s';
-// Alt+` goes to the next starred workspace; on the Russian layout the same key is Ё.
-const STAR_KEYS = ['alt+backtick', 'alt+ё'];
+// Alt+N walks through the workspaces with a star of kind N.
+const STAR_KEYS = KINDS.map(k => `alt+${k.kind}`);
 const binding = (key, action, description) => [
   '[[keys.command]]', `key = "${key}"`, 'type = "plugin_action"', `command = "anton.sidebar.${action}"`, `description = "${description}"`,
 ];
 const FIXED_BINDINGS = [
   ...binding(OPEN_KEY, 'open', 'категории и дежурства'),
-  ...STAR_KEYS.flatMap(k => binding(k, 'star-next', 'следующий проект со звёздочкой')),
+  ...KINDS.flatMap((k, i) => binding(STAR_KEYS[i], `star-${k.kind}`, `звёздочки ${k.kind}: ${k.name}`)),
 ];
 const keysBlock = (extra = []) => [KEYS_BEGIN, ...FIXED_BINDINGS, ...extra, KEYS_END];
 const squash = s => s.replace(/\s+/g, '');
@@ -35,6 +37,7 @@ const OUR_ROWS = new Set([
   ...STYLED_ROWS.map(r => squash(r).replace(/,$/, '')),
   squash('["state_icon", { token = "workspace", rules = [{ starts_with = "━━", fg = "#fabd2f", bold = true }] }]'),
   squash('["state_icon", "workspace", { token = "$key", fg = "#83a598" }]'),
+  squash('["state_icon", { token = "$star", fg = "#fabd2f" }, "workspace", { token = "$key", fg = "#83a598" }]'),
 ]);
 const TABLE_RE = /^\s*\[\[?\s*[A-Za-z0-9_."-]+(\s*\.\s*[A-Za-z0-9_."-]+)*\s*\]\]?\s*(#.*)?$/;
 

@@ -1,25 +1,39 @@
 'use strict';
-// Starred workspaces: which open workspaces carry a star, and where the star
-// key goes next. A star points at a workspace the same way a hotkey does
-// ({ target: { wsId, label, path } }), so it follows renames and restarts.
+// Stars of four kinds: my project and three jobs. Alt+1…Alt+4 walk through the
+// workspaces of one kind. A star points at a workspace the same way a hotkey
+// does ({ kind, target: { wsId, label, path } }), so it follows renames and restarts.
 const hotkeys = require('./hotkeys');
 
-function starredIds(stars, workspaces, paths) {
-  const ids = new Set();
+const KINDS = [
+  { kind: 1, name: 'Мой проект', color: '#fabd2f' },
+  { kind: 2, name: 'Первая работа', color: '#8ec07c' },
+  { kind: 3, name: 'Вторая работа', color: '#d3869b' },
+  { kind: 4, name: 'Третья работа', color: '#fe8019' },
+];
+const kindOf = s => s.kind || 1; // stars saved before kinds existed
+const token = kind => `★${kind}`;
+
+// Open workspace id -> kind of its star.
+function starKinds(stars, workspaces, paths) {
+  const kinds = new Map();
   for (const s of stars || []) {
     const w = hotkeys.findWorkspace(s.target, workspaces, paths);
-    if (w) ids.add(w.workspace_id);
+    if (w && !kinds.has(w.workspace_id)) kinds.set(w.workspace_id, kindOf(s));
   }
-  return ids;
+  return kinds;
 }
 
-// From the focused workspace, the next starred one down the sidebar, going
-// round at the end. null when no starred workspace is open.
-function nextStar(stars, workspaces, paths) {
-  const ids = starredIds(stars, workspaces, paths);
+// Where Alt+<kind> goes. Inside the kind: the next one down the sidebar, round
+// at the end. From elsewhere: the one of this kind visited last, else the first.
+// null when nothing of this kind is open.
+function nextStar(stars, workspaces, paths, kind, lastId) {
+  const kinds = starKinds(stars, workspaces, paths);
+  const mine = w => kinds.get(w.workspace_id) === kind;
+  const of = workspaces.filter(mine);
+  if (!of.length) return null;
   const here = workspaces.findIndex(w => w.focused);
-  const open = workspaces.filter(w => ids.has(w.workspace_id));
-  return workspaces.find((w, i) => i > here && ids.has(w.workspace_id)) || open[0] || null;
+  if (here >= 0 && mine(workspaces[here])) return workspaces.find((w, i) => i > here && mine(w)) || of[0];
+  return of.find(w => w.workspace_id === lastId) || of[0];
 }
 
-module.exports = { starredIds, nextStar };
+module.exports = { KINDS, kindOf, token, starKinds, nextStar };

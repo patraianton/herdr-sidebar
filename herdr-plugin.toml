@@ -1,6 +1,6 @@
 id = "anton.sidebar"
 name = "Категории и дежурства"
-version = "0.3.0"
+version = "0.4.0"
 min_herdr_version = "0.9.1"
 description = "Свои категории в боковой панели Spaces, вынос копий проекта из группы, пометка и проверка дежурных агентов, горячие клавиши для прыжка к проекту, звёздочки на важных проектах"
 platforms = ["windows", "linux", "macos"]
@@ -39,11 +39,26 @@ id = "ensure"
 title = "Запустить помощника «Категорий и дежурств»"
 command = ["node", "src/ensure.js"]
 
-# Alt+` (на русской раскладке Alt+Ё): к следующему проекту со звёздочкой.
+# Alt+1…Alt+4: к следующему проекту со звёздочкой этого вида.
 [[actions]]
-id = "star-next"
-title = "Следующий проект со звёздочкой"
-command = ["node", "src/cli.js", "star-next"]
+id = "star-1"
+title = "Звёздочки 1: мой проект"
+command = ["node", "src/cli.js", "star", "1"]
+
+[[actions]]
+id = "star-2"
+title = "Звёздочки 2: первая работа"
+command = ["node", "src/cli.js", "star", "2"]
+
+[[actions]]
+id = "star-3"
+title = "Звёздочки 3: вторая работа"
+command = ["node", "src/cli.js", "star", "3"]
+
+[[actions]]
+id = "star-4"
+title = "Звёздочки 4: третья работа"
+command = ["node", "src/cli.js", "star", "4"]
 
 # Горячие клавиши: config.toml связывает клавишу с действием jump-N, а что такое N,
 # помощник хранит у себя (окно плагина, клавиша k). 30 мест хватит с запасом.

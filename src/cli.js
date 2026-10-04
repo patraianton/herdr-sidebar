@@ -2,7 +2,7 @@
 'use strict';
 // Command line: `herdr-duty ...` for agents, install/uninstall/status/open for people,
 // `jump N` for the hotkeys (herdr runs it through the action jump-N) and
-// `star-next` for Alt+` (the action star-next).
+// `star N` for Alt+N, the stars of kind N (the action star-N).
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -250,36 +250,39 @@ async function workspacesNow(h) {
 async function jumpTo(h, state, slot) {
   const hk = (state.hotkeys || []).find(x => x.slot === Number(slot));
   if (!hk) {
-    await h.notify('Горячая клавиша', 'Эта клавиша ни к чему не привязана. Назначить: prefix+shift+s, строка проекта, k.');
+    await h.notify('Горячая клавиша', 'Эта клавиша ни к чему не привязана. Назначить: Ctrl+B, потом Shift+S, встать на проект, K.');
     return 'unbound';
   }
   const { workspaces, firstCwd } = await workspacesNow(h);
   const w = hotkeys.findWorkspace(hk.target, workspaces, firstCwd);
   if (!w) {
-    await h.notify(`${hotkeys.displayKey(hk.key)}: «${hk.target.label}» не найдено`, 'Проект закрыт или переименован. Назначьте клавишу заново: prefix+shift+s, k.');
+    await h.notify(`${hotkeys.displayKey(hk.key)}: «${hk.target.label}» не найдено`, 'Проект закрыт или переименован. Назначьте клавишу заново: Ctrl+B, потом Shift+S, K.');
     return 'missing';
   }
   await h.focusWorkspace(w.workspace_id);
   if (!hk.target.tabId) return w.workspace_id;
   const t = hotkeys.findTab(hk.target, await h.listTabs(w.workspace_id), w.workspace_id);
   if (!t) {
-    await h.notify(`${hotkeys.displayKey(hk.key)}: вкладки «${hk.target.tabLabel}» нет`, `Открыт проект «${w.label}». Назначьте клавишу заново: prefix+shift+s, k.`);
+    await h.notify(`${hotkeys.displayKey(hk.key)}: вкладки «${hk.target.tabLabel}» нет`, `Открыт проект «${w.label}». Назначьте клавишу заново: Ctrl+B, потом Shift+S, K.`);
     return w.workspace_id;
   }
   await h.focusTab(t.tab_id);
   return t.tab_id;
 }
 
-// Alt+`: the next starred workspace down the sidebar from the focused one.
-async function starJump(h, state) {
-  if (!(state.stars || []).length) {
-    await h.notify('Звёздочки', 'Нет проектов со звёздочкой. Отметить: prefix+shift+s, строка проекта, s.');
+// Alt+N: the next workspace with a star of kind N (see stars.nextStar).
+// lastId is the workspace of this kind the key went to last time.
+async function starJump(h, state, kind, lastId) {
+  const k = stars.KINDS.find(x => x.kind === Number(kind)) || { kind, name: '' };
+  const title = `★${k.kind} ${k.name}`;
+  if (!(state.stars || []).some(s => stars.kindOf(s) === k.kind)) {
+    await h.notify(title, `Нет проектов с этой звёздочкой. Поставить: Ctrl+B, потом Shift+S, встать на проект, S, ${k.kind}.`);
     return 'none';
   }
   const { workspaces, firstCwd } = await workspacesNow(h);
-  const w = stars.nextStar(state.stars, workspaces, firstCwd);
+  const w = stars.nextStar(state.stars, workspaces, firstCwd, k.kind, lastId);
   if (!w) {
-    await h.notify('Звёздочки', 'Проекты со звёздочкой сейчас закрыты.');
+    await h.notify(title, 'Проекты с этой звёздочкой сейчас закрыты.');
     return 'missing';
   }
   await h.focusWorkspace(w.workspace_id);
@@ -290,12 +293,22 @@ function savedState() {
   const sock = process.env.HERDR_SOCKET_PATH;
   const root = process.env.HERDR_PLUGIN_STATE_DIR;
   if (!sock || !root) fail('Прыжок запускается из herdr по горячей клавише.');
-  return { h: makeHerdr(sock), state: store.loadState(path.join(paths.sessionDir(root, sock), 'state.json')) };
+  const dir = paths.sessionDir(root, sock);
+  return { h: makeHerdr(sock), dir, state: store.loadState(path.join(dir, 'state.json')) };
 }
 
 async function jump(slot) {
   const { h, state } = savedState();
   await jumpTo(h, state, slot);
+}
+
+// The helper owns state.json, so where each star key went last is kept apart.
+async function star(kind) {
+  const { h, dir, state } = savedState();
+  const file = path.join(dir, 'star-last.json');
+  const last = store.loadJson(file, {});
+  const id = await starJump(h, state, kind, last[kind]);
+  if (id !== 'none' && id !== 'missing') store.saveJson(file, { ...last, [kind]: id });
 }
 
 async function main(argv) {
@@ -306,7 +319,7 @@ async function main(argv) {
   if (cmd === 'status') return status();
   if (cmd === 'open') return open();
   if (cmd === 'jump') return jump(rest[0]);
-  if (cmd === 'star-next') { const { h, state } = savedState(); return starJump(h, state); }
+  if (cmd === 'star') return star(rest[0]);
   say('Команды: duty …, install, uninstall, status, open');
   say(USAGE);
   return undefined;

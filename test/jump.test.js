@@ -56,18 +56,28 @@ test('a missing tab opens the project and says why', async () => {
 });
 
 const { starJump } = require('../src/cli');
-const starState = list => ({ stars: list.map(([wsId, label]) => ({ target: { wsId, label } })) });
+const starState = list => ({ stars: list.map(([wsId, label, kind]) => ({ kind, target: { wsId, label } })) });
+const ws3 = () => [{ workspace_id: 'w1', label: 'a', focused: true }, { workspace_id: 'w2', label: 'b' }, { workspace_id: 'w3', label: 'c' }];
 
-test('the star key goes to the next starred project down the sidebar', async () => {
-  const h = fake([{ workspace_id: 'w1', label: 'a', focused: true }, { workspace_id: 'w2', label: 'b' }, { workspace_id: 'w3', label: 'c' }]);
-  assert.equal(await starJump(h, starState([['w1', 'a'], ['w3', 'c']])), 'w3');
-  assert.deepEqual(h.calls, [['ws', 'w3']]);
+test('Alt+N goes to the next project with a star of kind N', async () => {
+  const h = fake(ws3());
+  const st = starState([['w1', 'a', 2], ['w2', 'b', 1], ['w3', 'c', 2]]);
+  assert.equal(await starJump(h, st, 2), 'w3');
+  assert.equal(await starJump(h, st, 1), 'w2');
+  assert.deepEqual(h.calls, [['ws', 'w3'], ['ws', 'w2']]);
 });
 
-test('no stars, or none of them open: only a notice', async () => {
-  const h = fake([{ workspace_id: 'w1', label: 'a', focused: true }]);
-  assert.equal(await starJump(h, starState([])), 'none');
-  assert.equal(await starJump(h, starState([['w7', 'gone']])), 'missing');
+test('Alt+N from another kind goes back to the project of kind N visited last', async () => {
+  const h = fake(ws3());
+  const st = starState([['w2', 'b', 3], ['w3', 'c', 3]]);
+  assert.equal(await starJump(h, st, 3, 'w3'), 'w3');
+});
+
+test('no stars of the kind, or none of them open: only a notice that names the kind', async () => {
+  const h = fake(ws3());
+  assert.equal(await starJump(h, starState([['w2', 'b', 1]]), 3), 'none');
+  assert.equal(await starJump(h, starState([['w7', 'gone', 2]]), 2), 'missing');
   assert.deepEqual(h.calls.map(c => c[0]), ['notify', 'notify']);
-  assert.match(h.calls[0][2], /prefix\+shift\+s/);
+  assert.match(h.calls[0][1], /3.*Вторая работа/);
+  assert.match(h.calls[0][2], /Ctrl\+B/);
 });

@@ -4,54 +4,60 @@ const assert = require('node:assert/strict');
 const stars = require('../src/stars');
 
 const W = (id, label, focused = false) => ({ workspace_id: id, label, focused });
-const star = (wsId, label, path) => ({ target: { wsId, label, path } });
+const star = (wsId, label, kind, path) => ({ kind, target: { wsId, label, path } });
 const paths = { w1: 'C:/p/1', w2: 'C:/p/2', w3: 'C:/p/3', w4: 'C:/p/4', w5: 'C:/p/5' };
 
-test('next goes down the sidebar to the next starred project and round at the end', () => {
-  const list = [star('w4', 'd'), star('w2', 'b')];
-  const ws = [W('w1', 'a'), W('w2', 'b'), W('w3', 'c', true), W('w4', 'd'), W('w5', 'e')];
-  assert.equal(stars.nextStar(list, ws, paths).workspace_id, 'w4');
-  ws[2].focused = false; ws[3].focused = true;
-  assert.equal(stars.nextStar(list, ws, paths).workspace_id, 'w2', 'from the last one back to the first');
+test('four kinds: my project and three jobs, Alt+1…Alt+4, each its own colour', () => {
+  assert.deepEqual(stars.KINDS.map(k => k.kind), [1, 2, 3, 4]);
+  assert.deepEqual(stars.KINDS.map(k => k.name), ['Мой проект', 'Первая работа', 'Вторая работа', 'Третья работа']);
+  assert.equal(new Set(stars.KINDS.map(k => k.color)).size, 4);
+  assert.equal(stars.token(2), '★2');
 });
 
-test('from a project without a star the next starred one below is taken', () => {
-  const ws = [W('w1', 'a', true), W('w2', 'b'), W('w3', 'c')];
-  assert.equal(stars.nextStar([star('w3', 'c')], ws, paths).workspace_id, 'w3');
-  assert.equal(stars.nextStar([star('w1', 'a')], [W('w1', 'a'), W('w2', 'b', true)], paths).workspace_id, 'w1');
+test('inside a kind the key goes down the sidebar and round at the end', () => {
+  const list = [star('w4', 'd', 2), star('w2', 'b', 2), star('w3', 'c', 1)];
+  const ws = [W('w1', 'a'), W('w2', 'b', true), W('w3', 'c'), W('w4', 'd'), W('w5', 'e')];
+  assert.equal(stars.nextStar(list, ws, paths, 2).workspace_id, 'w4', 'skips the other kind');
+  ws[1].focused = false; ws[3].focused = true;
+  assert.equal(stars.nextStar(list, ws, paths, 2).workspace_id, 'w2');
 });
 
-test('nothing focused: the first starred project', () => {
-  const ws = [W('w1', 'a'), W('w2', 'b'), W('w3', 'c')];
-  assert.equal(stars.nextStar([star('w3', 'c'), star('w2', 'b')], ws, paths).workspace_id, 'w2');
+test('coming from another kind: back to the one visited last, else the first of the kind', () => {
+  const list = [star('w2', 'b', 2), star('w4', 'd', 2), star('w1', 'a', 1)];
+  const ws = [W('w1', 'a', true), W('w2', 'b'), W('w3', 'c'), W('w4', 'd')];
+  assert.equal(stars.nextStar(list, ws, paths, 2, 'w4').workspace_id, 'w4');
+  assert.equal(stars.nextStar(list, ws, paths, 2).workspace_id, 'w2');
+  assert.equal(stars.nextStar(list, ws, paths, 2, 'w9').workspace_id, 'w2', 'the last one is closed');
+  assert.equal(stars.nextStar(list, ws, paths, 2, 'w1').workspace_id, 'w2', 'the last one has another kind now');
 });
 
-test('a single star that is already open stays where it is', () => {
-  const ws = [W('w1', 'a'), W('w2', 'b', true)];
-  assert.equal(stars.nextStar([star('w2', 'b')], ws, paths).workspace_id, 'w2');
-});
-
-test('closed starred projects are skipped; none open gives null', () => {
+test('a kind with nothing open gives null', () => {
   const ws = [W('w1', 'a', true), W('w2', 'b')];
-  assert.equal(stars.nextStar([star('w9', 'gone'), star('w2', 'b')], ws, paths).workspace_id, 'w2');
-  assert.equal(stars.nextStar([star('w9', 'gone')], ws, paths), null);
-  assert.equal(stars.nextStar([], ws, paths), null);
+  assert.equal(stars.nextStar([star('w9', 'gone', 3), star('w2', 'b', 2)], ws, paths, 3), null);
+  assert.equal(stars.nextStar([], ws, paths, 1), null);
+});
+
+test('stars saved before kinds existed are «my project»', () => {
+  const ws = [W('w1', 'a', true), W('w2', 'b')];
+  assert.equal(stars.nextStar([{ target: { wsId: 'w2', label: 'b' } }], ws, paths, 1).workspace_id, 'w2');
+  assert.equal(stars.starKinds([{ target: { wsId: 'w2', label: 'b' } }], ws, paths).get('w2'), 1);
 });
 
 test('after a herdr restart a star finds its project by name, and namesakes by folder', () => {
   const ws = [W('w1', 'other', true), W('w7', 'Ads'), W('w8', 'api'), W('w9', 'api')];
   const p = { w1: 'C:/q', w7: 'C:/ads', w8: 'C:/api-a', w9: 'C:/api-b' };
-  assert.equal(stars.nextStar([star('w1', 'Ads', 'c:/ads')], ws, p).workspace_id, 'w7');
-  assert.equal(stars.nextStar([star('w2', 'api', 'c:/api-b')], ws, p).workspace_id, 'w9');
+  assert.equal(stars.nextStar([star('w1', 'Ads', 1, 'c:/ads')], ws, p, 1).workspace_id, 'w7');
+  assert.equal(stars.nextStar([star('w2', 'api', 1, 'c:/api-b')], ws, p, 1).workspace_id, 'w9');
 });
 
-test('starredIds: the open workspaces that carry a star', () => {
+test('starKinds: the open workspaces that carry a star, with its kind', () => {
   const ws = [W('w1', 'a'), W('w2', 'b'), W('w3', 'c')];
-  assert.deepEqual([...stars.starredIds([star('w3', 'c'), star('w9', 'gone')], ws, paths)], ['w3']);
+  const k = stars.starKinds([star('w3', 'c', 4), star('w9', 'gone', 2), star('w1', 'a', 2)], ws, paths);
+  assert.deepEqual([...k], [['w3', 4], ['w1', 2]]);
 });
 
 test('review 2: closing a starred china-cars does not star the other china-cars', () => {
   const ws = [W('w1', 'x', true), W('w2', 'china-cars')];
   const p = { w1: 'C:/x', w2: 'C:/cars-b' };
-  assert.equal(stars.nextStar([star('w5', 'china-cars', 'c:/cars-a')], ws, p), null);
+  assert.equal(stars.nextStar([star('w5', 'china-cars', 1, 'c:/cars-a')], ws, p, 1), null);
 });

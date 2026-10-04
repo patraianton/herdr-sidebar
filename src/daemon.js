@@ -256,7 +256,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     for (const [wsId, d] of Object.entries(state.detached)) put(wsId, 'project', `⎇ ${d.parentLabel}`);
     for (const d of Object.values(state.duty)) if (d.wsId) put(d.wsId, 'duty', duty.dutyToken(d));
     for (const [wsId, list] of keysByWs()) put(wsId, 'key', list.map(k => k.display).join(' '));
-    for (const wsId of starred(snap)) put(wsId, 'star', '★');
+    for (const [wsId, kind] of starKinds(snap)) put(wsId, 'star', stars.token(kind));
     return want;
   }
 
@@ -400,14 +400,14 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     return by;
   }
 
-  const starred = snap => stars.starredIds(state.stars, snap.workspaces, snap.paths);
+  const starKinds = snap => stars.starKinds(state.stars, snap.workspaces, snap.paths);
 
   const usedElsewhere = () => {
     const file = keysConfig.file();
     if (!file) throw new Error(NOT_INSTALLED);
     const used = hotkeys.usedKeys(keysConfig.read(file), keysConfig.defaults(), configpatch.KEYS_BEGIN, configpatch.KEYS_END);
     used.set(hotkeys.normKey(configpatch.OPEN_KEY), 'окно плагина «Категории и дежурства»');
-    for (const k of configpatch.STAR_KEYS) used.set(hotkeys.normKey(k), 'переход по звёздочкам');
+    stars.KINDS.forEach((k, i) => used.set(hotkeys.normKey(configpatch.STAR_KEYS[i]), `звёздочки ${k.kind} «${k.name}»`));
     return used;
   };
 
@@ -451,14 +451,15 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     }));
     const keys = keysByWs();
     const keysOf = wsId => keys.get(wsId) || [];
-    const starSet = starred(last.snap);
+    const kinds = starKinds(last.snap);
+    const starOf = wsId => kinds.get(wsId) || 0;
     const unitView = u => ({
       key: u.key, kind: u.kind, label: u.label, anchorId: u.anchorId, wsIds: u.wsIds, linked: !!u.linked,
       detached: state.detached[u.anchorId] ? { parentLabel: state.detached[u.anchorId].parentLabel } : null,
-      duty: dutyOf(u.anchorId), agents: agentsOf(u.anchorId), keys: keysOf(u.anchorId), starred: starSet.has(u.anchorId),
+      duty: dutyOf(u.anchorId), agents: agentsOf(u.anchorId), keys: keysOf(u.anchorId), star: starOf(u.anchorId),
       children: u.children.map(ch => ({
         wsId: ch.wsId, label: ch.label, duty: dutyOf(ch.wsId), agents: agentsOf(ch.wsId), keys: keysOf(ch.wsId),
-        starred: starSet.has(ch.wsId),
+        star: starOf(ch.wsId),
       })),
     });
     const assigned = new Set();
@@ -612,17 +613,19 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       log('hotkey cleared', k);
       return { reloaded };
     },
-    // A star marks an important workspace; Alt+` walks through the starred ones.
-    'star.toggle': async ({ wsId }) => {
+    // A star of kind 1…4 marks an important workspace; Alt+N walks through
+    // the workspaces of kind N. Kind 0 takes the star off.
+    'star.set': async ({ wsId, kind }) => {
+      const k = Number(kind) || 0;
+      if (k && !stars.KINDS.some(x => x.kind === k)) throw new Error(`Нет такого вида звёздочки: ${kind}.`);
       const snap = last.snap || await snapshot();
       const w = snap.byId.get(wsId);
       if (!w) throw new Error('Этого рабочего места уже нет.');
       const list = state.stars || [];
-      const mine = list.filter(s => (hotkeys.findWorkspace(s.target, snap.workspaces, snap.paths) || {}).workspace_id === wsId);
-      state.stars = mine.length ? list.filter(s => !mine.includes(s))
-        : [...list, { target: { wsId, label: w.label, path: hotkeys.wsPath(w, snap.paths) } }];
-      log('star', mine.length ? 'off' : 'on', wsId);
-      return { starred: !mine.length, label: w.label, count: state.stars.length };
+      const others = list.filter(s => (hotkeys.findWorkspace(s.target, snap.workspaces, snap.paths) || {}).workspace_id !== wsId);
+      state.stars = k ? [...others, { kind: k, target: { wsId, label: w.label, path: hotkeys.wsPath(w, snap.paths) } }] : others;
+      log('star', k, wsId);
+      return { kind: k, label: w.label };
     },
     'duty.status': async () => Object.values(state.duty).map(d => ({
       id: d.id, label: d.label, wsId: d.wsId, every: duty.fmtDur(d.everyMs), token: duty.dutyToken(d), alert: d.alert,
