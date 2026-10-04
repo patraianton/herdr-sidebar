@@ -114,3 +114,37 @@ test('review 2: of two namesakes in one folder the one starred gets the star', a
   assert.equal(starTok(list, 'w2'), '★1');
   x.cleanup();
 });
+
+test('F1…F4: the key puts its star on the focused workspace, a second press takes it off', async () => {
+  const list = [ws('w1', 'a'), { ...ws('w2', 'b'), focused: true }, ws('w3', 'c')];
+  const x = setup(list);
+  await x.d._test.cycle('t');
+  assert.deepEqual(await x.d.handle('star.toggle', { kind: 2 }), { kind: 2, label: 'b' });
+  assert.equal(starTok(list, 'w2'), '★2');
+  assert.deepEqual(await x.d.handle('star.toggle', { kind: 3 }), { kind: 3, label: 'b' }, 'another kind replaces it');
+  assert.equal(starTok(list, 'w2'), '★3');
+  assert.deepEqual(await x.d.handle('star.toggle', { kind: 3 }), { kind: 0, label: 'b' });
+  assert.equal(starTok(list, 'w2'), undefined);
+  list[1].focused = false; list[2].focused = true;
+  await x.d.handle('star.toggle', { kind: 1 });
+  assert.equal(starTok(list, 'w3'), '★1', 'follows the focus herdr reports now, not the last cycle');
+  x.cleanup();
+});
+
+test('F1…F4 with nothing focused or a kind that does not exist is refused', async () => {
+  const x = setup([ws('w1', 'a')]);
+  await x.d._test.cycle('t');
+  await assert.rejects(x.d.handle('star.toggle', { kind: 1 }), /не выбрано/);
+  await assert.rejects(x.d.handle('star.toggle', { kind: 7 }), /вида/);
+  x.cleanup();
+});
+
+test('F1…F4 are not offered as a hotkey', async () => {
+  const x = setup([ws('w1', 'a')]);
+  await x.d._test.cycle('t');
+  await assert.rejects(x.d.handle('hotkey.set', { key: 'f2', wsId: 'w1' }), /уже занята: звёздочка 2/);
+  const menu = await x.d.handle('hotkey.menu', { wsId: 'w1' });
+  assert.ok(!menu.choices.some(c => ['f1', 'f2', 'f3', 'f4'].includes(c.key)));
+  assert.ok(menu.choices.some(c => c.key === 'f5'));
+  x.cleanup();
+});

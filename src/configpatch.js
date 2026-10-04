@@ -19,14 +19,17 @@ const STYLED_ROWS = [
   '  [{ token = "$duty", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }, { starts_with = "◆", fg = "#b8bb26" }] }],',
 ];
 const OPEN_KEY = 'prefix+shift+s';
-// Alt+N walks through the workspaces with a star of kind N.
+// Alt+N walks through the workspaces with a star of kind N; FN puts that star
+// on the focused workspace or takes it off. (Alt+Shift+N does not reach herdr.)
 const STAR_KEYS = KINDS.map(k => `alt+${k.kind}`);
+const TOGGLE_KEYS = KINDS.map(k => `f${k.kind}`);
 const binding = (key, action, description) => [
   '[[keys.command]]', `key = "${key}"`, 'type = "plugin_action"', `command = "anton.sidebar.${action}"`, `description = "${description}"`,
 ];
 const FIXED_BINDINGS = [
   ...binding(OPEN_KEY, 'open', 'категории и дежурства'),
   ...KINDS.flatMap((k, i) => binding(STAR_KEYS[i], `star-${k.kind}`, `звёздочки ${k.kind}: ${k.name}`)),
+  ...KINDS.flatMap((k, i) => binding(TOGGLE_KEYS[i], `star-toggle-${k.kind}`, `звёздочка ${k.kind}: поставить или снять`)),
 ];
 const keysBlock = (extra = []) => [KEYS_BEGIN, ...FIXED_BINDINGS, ...extra, KEYS_END];
 const squash = s => s.replace(/\s+/g, '');
@@ -210,4 +213,4 @@ function unpatchConfig(text, { originalRows, hadTable }) {
   return lines.join(eol);
 }
 
-module.exports = { BEGIN, END, KEYS_BEGIN, KEYS_END, OPEN_KEY, STAR_KEYS, patchConfig, refreshConfig, setKeysBlock, unpatchConfig, _internal: { topLevelElements, findRows } };
+module.exports = { BEGIN, END, KEYS_BEGIN, KEYS_END, OPEN_KEY, STAR_KEYS, TOGGLE_KEYS, patchConfig, refreshConfig, setKeysBlock, unpatchConfig, _internal: { topLevelElements, findRows } };

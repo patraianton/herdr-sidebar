@@ -288,7 +288,7 @@ async function main() {
     const p1 = byLabel(ws, 'plain1').workspace_id;
     const p2 = byLabel(ws, 'plain2').workspace_id;
     const menu = await helper('hotkey.menu', { wsId: p1 });
-    assert(menu.choices.length === 17, `choices: ${menu.choices.length}`);
+    assert(menu.choices.length === 13, `choices: ${menu.choices.length}`);
     await helper('hotkey.set', { key: 'alt+5', wsId: p1 });
     const tab = h('tab', 'create', '--workspace', p2, '--label', 'logs', '--no-focus').result.tab.tab_id;
     await helper('hotkey.set', { key: 'f5', wsId: p2, tabId: tab });
@@ -382,6 +382,15 @@ async function main() {
     await key('alt+1', 'plain1');
     await key('alt+2', 'repoA');
     await key('alt+2', 'plain2');
+    // F1…F4 put a star on the focused workspace (plain2 now) and take it off
+    const starNow = async () => (byLabel(await list(), 'plain2').tokens || {}).star || '';
+    const f = async (k, want) => {
+      v('pane', 'send-keys', vpane, k);
+      await waitFor(`${k} → «${want}»`, async () => await starNow() === want, 15000);
+    };
+    await f('f3', '★3');
+    await f('f3', '');
+    await f('f2', '★2');
   });
 
   await step('window opens, shows categories, help and quits', async () => {

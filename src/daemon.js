@@ -402,12 +402,33 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
 
   const starKinds = snap => stars.starKinds(state.stars, snap.workspaces, snap.paths);
 
+  // 1…4, or 0 (no star) where taking the star off is allowed.
+  function starKind(kind, zeroOk) {
+    const k = Number(kind) || 0;
+    if ((k || !zeroOk) && !stars.KINDS.some(x => x.kind === k)) throw new Error(`Нет такого вида звёздочки: ${kind}.`);
+    return k;
+  }
+
+  // One star per workspace: the new kind replaces the old one, 0 takes it off.
+  function setStar(snap, wsId, k) {
+    const w = snap.byId.get(wsId);
+    if (!w) throw new Error('Этого рабочего места уже нет.');
+    const list = state.stars || [];
+    const others = list.filter(s => (hotkeys.findWorkspace(s.target, snap.workspaces, snap.paths) || {}).workspace_id !== wsId);
+    state.stars = k ? [...others, { kind: k, target: { wsId, label: w.label, path: hotkeys.wsPath(w, snap.paths) } }] : others;
+    log('star', k, wsId);
+    return { kind: k, label: w.label };
+  }
+
   const usedElsewhere = () => {
     const file = keysConfig.file();
     if (!file) throw new Error(NOT_INSTALLED);
     const used = hotkeys.usedKeys(keysConfig.read(file), keysConfig.defaults(), configpatch.KEYS_BEGIN, configpatch.KEYS_END);
     used.set(hotkeys.normKey(configpatch.OPEN_KEY), 'окно плагина «Категории и дежурства»');
-    stars.KINDS.forEach((k, i) => used.set(hotkeys.normKey(configpatch.STAR_KEYS[i]), `звёздочки ${k.kind} «${k.name}»`));
+    stars.KINDS.forEach((k, i) => {
+      used.set(hotkeys.normKey(configpatch.STAR_KEYS[i]), `звёздочки ${k.kind} «${k.name}»`);
+      used.set(hotkeys.normKey(configpatch.TOGGLE_KEYS[i]), `звёздочка ${k.kind}: поставить или снять`);
+    });
     return used;
   };
 
@@ -615,17 +636,14 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     },
     // A star of kind 1…4 marks an important workspace; Alt+N walks through
     // the workspaces of kind N. Kind 0 takes the star off.
-    'star.set': async ({ wsId, kind }) => {
-      const k = Number(kind) || 0;
-      if (k && !stars.KINDS.some(x => x.kind === k)) throw new Error(`Нет такого вида звёздочки: ${kind}.`);
-      const snap = last.snap || await snapshot();
-      const w = snap.byId.get(wsId);
-      if (!w) throw new Error('Этого рабочего места уже нет.');
-      const list = state.stars || [];
-      const others = list.filter(s => (hotkeys.findWorkspace(s.target, snap.workspaces, snap.paths) || {}).workspace_id !== wsId);
-      state.stars = k ? [...others, { kind: k, target: { wsId, label: w.label, path: hotkeys.wsPath(w, snap.paths) } }] : others;
-      log('star', k, wsId);
-      return { kind: k, label: w.label };
+    'star.set': async ({ wsId, kind }) => setStar(last.snap || await snapshot(), wsId, starKind(kind, true)),
+    // F1…F4: the star of that kind on the workspace focused right now, or off if it is already there.
+    'star.toggle': async ({ kind }) => {
+      const k = starKind(kind, false);
+      const snap = await snapshot();
+      const w = snap.workspaces.find(x => x.focused);
+      if (!w) throw new Error('Рабочее место не выбрано.');
+      return setStar(snap, w.workspace_id, starKinds(snap).get(w.workspace_id) === k ? 0 : k);
     },
     'duty.status': async () => Object.values(state.duty).map(d => ({
       id: d.id, label: d.label, wsId: d.wsId, every: duty.fmtDur(d.everyMs), token: duty.dutyToken(d), alert: d.alert,

@@ -77,7 +77,7 @@ test('a key taken by another plugin or by herdr is refused and not offered', asy
   await assert.rejects(x.d.handle('hotkey.set', { key: 'k', wsId: 'w1' }), /не годится/);
   const m = await x.d.handle('hotkey.menu', { wsId: 'w1' });
   assert.ok(!m.choices.some(c => c.key === 'f7'));
-  assert.equal(m.choices.length, 16);
+  assert.equal(m.choices.length, 12); // 21 less Alt+1…4 and F1…4 (stars) and F7
   assert.equal(x.cfg.writes, 0);
   x.cleanup();
 });

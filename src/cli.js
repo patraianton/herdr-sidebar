@@ -2,7 +2,8 @@
 'use strict';
 // Command line: `herdr-duty ...` for agents, install/uninstall/status/open for people,
 // `jump N` for the hotkeys (herdr runs it through the action jump-N) and
-// `star N` for Alt+N, the stars of kind N (the action star-N).
+// `star N` for Alt+N, the stars of kind N (the action star-N), and
+// `star-toggle N` for FN, the star of kind N on the focused workspace.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -302,6 +303,18 @@ async function jump(slot) {
   await jumpTo(h, state, slot);
 }
 
+// F1…F4: the helper owns the stars, so it puts or takes off the star; the
+// sidebar shows the result. Only a failure becomes a notice.
+async function starToggle(kind) {
+  const sock = process.env.HERDR_SOCKET_PATH;
+  if (!sock) fail('Звёздочка ставится из herdr клавишами F1…F4.');
+  try {
+    await helper('star.toggle', { kind: Number(kind) });
+  } catch (e) {
+    await makeHerdr(sock).notify('Звёздочка', e.message).catch(() => {});
+  }
+}
+
 // The helper owns state.json, so where each star key went last is kept apart.
 async function star(kind) {
   const { h, dir, state } = savedState();
@@ -320,6 +333,7 @@ async function main(argv) {
   if (cmd === 'open') return open();
   if (cmd === 'jump') return jump(rest[0]);
   if (cmd === 'star') return star(rest[0]);
+  if (cmd === 'star-toggle') return starToggle(rest[0]);
   say('Команды: duty …, install, uninstall, status, open');
   say(USAGE);
   return undefined;

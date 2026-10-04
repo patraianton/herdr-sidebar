@@ -218,3 +218,12 @@ test('refresh adds a keys block when an old install has none', () => {
   assert.ok(t.includes(cp.KEYS_BEGIN) && t.includes('anton.sidebar.star-4') && t.includes('anton.sidebar.open'));
   assert.equal(cp.refreshConfig(t), t);
 });
+
+test('the keys block carries F1…F4, each puts or takes off one kind of star', () => {
+  const t = cp.patchConfig(ANTON).text;
+  const block = t.slice(t.indexOf(cp.KEYS_BEGIN), t.indexOf(cp.KEYS_END));
+  assert.deepEqual(cp.TOGGLE_KEYS, ['f1', 'f2', 'f3', 'f4']);
+  cp.TOGGLE_KEYS.forEach((k, i) => {
+    assert.ok(block.includes(`key = "${k}"\r\ntype = "plugin_action"\r\ncommand = "anton.sidebar.star-toggle-${i + 1}"`), k);
+  });
+});
