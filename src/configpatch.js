@@ -23,6 +23,8 @@ const OPEN_KEY = 'prefix+shift+s';
 // on the focused workspace or takes it off. (Alt+Shift+N does not reach herdr.)
 const STAR_KEYS = KINDS.map(k => `alt+${k.kind}`);
 const TOGGLE_KEYS = KINDS.map(k => `f${k.kind}`);
+// Alt+0 takes every star off; pressed again while there are none, brings them back.
+const RESET_KEY = 'alt+0';
 const binding = (key, action, description) => [
   '[[keys.command]]', `key = "${key}"`, 'type = "plugin_action"', `command = "anton.sidebar.${action}"`, `description = "${description}"`,
 ];
@@ -30,6 +32,7 @@ const FIXED_BINDINGS = [
   ...binding(OPEN_KEY, 'open', 'категории и дежурства'),
   ...KINDS.flatMap((k, i) => binding(STAR_KEYS[i], `star-${k.kind}`, `звёздочки ${k.kind}: ${k.name}`)),
   ...KINDS.flatMap((k, i) => binding(TOGGLE_KEYS[i], `star-toggle-${k.kind}`, `звёздочка ${k.kind}: поставить или снять`)),
+  ...binding(RESET_KEY, 'star-reset', 'звёздочки: снять все или вернуть'),
 ];
 const keysBlock = (extra = []) => [KEYS_BEGIN, ...FIXED_BINDINGS, ...extra, KEYS_END];
 const squash = s => s.replace(/\s+/g, '');
@@ -213,4 +216,4 @@ function unpatchConfig(text, { originalRows, hadTable }) {
   return lines.join(eol);
 }
 
-module.exports = { BEGIN, END, KEYS_BEGIN, KEYS_END, OPEN_KEY, STAR_KEYS, TOGGLE_KEYS, patchConfig, refreshConfig, setKeysBlock, unpatchConfig, _internal: { topLevelElements, findRows } };
+module.exports = { BEGIN, END, KEYS_BEGIN, KEYS_END, OPEN_KEY, STAR_KEYS, TOGGLE_KEYS, RESET_KEY, patchConfig, refreshConfig, setKeysBlock, unpatchConfig, _internal: { topLevelElements, findRows } };

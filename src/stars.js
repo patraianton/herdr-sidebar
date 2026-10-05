@@ -36,4 +36,12 @@ function nextStar(stars, workspaces, paths, kind, lastId) {
   return of.find(w => w.workspace_id === lastId) || of[0];
 }
 
-module.exports = { KINDS, kindOf, token, starKinds, nextStar };
+// Alt+0 takes every star off ({ cleared }) or, when there are none, brings
+// back what it took off last time ({ restored }).
+function resetNote(r) {
+  if (r.cleared) return `Сняты все звёздочки (${r.cleared}). Вернуть их: Alt+0 ещё раз.`;
+  if (r.restored) return `Звёздочки вернулись (${r.restored}).`;
+  return 'Звёздочек нет.';
+}
+
+module.exports = { KINDS, kindOf, token, starKinds, nextStar, resetNote };

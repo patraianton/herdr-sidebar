@@ -3,7 +3,8 @@
 // Command line: `herdr-duty ...` for agents, install/uninstall/status/open for people,
 // `jump N` for the hotkeys (herdr runs it through the action jump-N) and
 // `star N` for Alt+N, the stars of kind N (the action star-N), and
-// `star-toggle N` for FN, the star of kind N on the focused workspace.
+// `star-toggle N` for FN, the star of kind N on the focused workspace,
+// and `star-reset` for Alt+0, every star off or back again.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -315,6 +316,19 @@ async function starToggle(kind) {
   }
 }
 
+// Alt+0: every star off, or back again; a notice says which.
+async function starReset() {
+  const sock = process.env.HERDR_SOCKET_PATH;
+  if (!sock) fail('Звёздочки снимаются из herdr клавишей Alt+0.');
+  let note;
+  try {
+    note = stars.resetNote(await helper('star.reset', {}));
+  } catch (e) {
+    note = e.message;
+  }
+  await makeHerdr(sock).notify('Звёздочки', note).catch(() => {});
+}
+
 // The helper owns state.json, so where each star key went last is kept apart.
 async function star(kind) {
   const { h, dir, state } = savedState();
@@ -334,6 +348,7 @@ async function main(argv) {
   if (cmd === 'jump') return jump(rest[0]);
   if (cmd === 'star') return star(rest[0]);
   if (cmd === 'star-toggle') return starToggle(rest[0]);
+  if (cmd === 'star-reset') return starReset();
   say('Команды: duty …, install, uninstall, status, open');
   say(USAGE);
   return undefined;

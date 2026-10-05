@@ -288,7 +288,7 @@ async function main() {
     const p1 = byLabel(ws, 'plain1').workspace_id;
     const p2 = byLabel(ws, 'plain2').workspace_id;
     const menu = await helper('hotkey.menu', { wsId: p1 });
-    assert(menu.choices.length === 13, `choices: ${menu.choices.length}`);
+    assert(menu.choices.length === 12, `choices: ${menu.choices.length}`);
     await helper('hotkey.set', { key: 'alt+5', wsId: p1 });
     const tab = h('tab', 'create', '--workspace', p2, '--label', 'logs', '--no-focus').result.tab.tab_id;
     await helper('hotkey.set', { key: 'f5', wsId: p2, tabId: tab });
@@ -391,6 +391,12 @@ async function main() {
     await f('f3', '★3');
     await f('f3', '');
     await f('f2', '★2');
+    // Alt+0 takes every star off; pressed again it brings them back
+    const all = async () => { const l = await list(); return ['plain2', 'repoA', 'plain1'].map(x => tok(l, x) || '').join('|'); };
+    v('pane', 'send-keys', vpane, 'alt+0');
+    await waitFor('alt+0 → no stars', async () => await all() === '||', 15000);
+    v('pane', 'send-keys', vpane, 'alt+0');
+    await waitFor('alt+0 → stars back', async () => await all() === '★2|★2|★1', 15000);
   });
 
   await step('window opens, shows categories, help and quits', async () => {

@@ -35,7 +35,7 @@ function setup(workspaces, state) {
     subscribe: () => ({ close() {} }), now: () => 1_000_000_000, sendTelegram: async () => true,
   });
   d._test.markConnected();
-  return { d, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+  return { d, dir, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }
 const ws = (id, label) => ({ workspace_id: id, label });
 const starTok = (list, id) => (list.find(w => w.workspace_id === id).tokens || {}).star;
@@ -146,5 +146,58 @@ test('F1…F4 are not offered as a hotkey', async () => {
   const menu = await x.d.handle('hotkey.menu', { wsId: 'w1' });
   assert.ok(!menu.choices.some(c => ['f1', 'f2', 'f3', 'f4'].includes(c.key)));
   assert.ok(menu.choices.some(c => c.key === 'f5'));
+  x.cleanup();
+});
+
+test('Alt+0 takes every star off, also on closed projects; pressed again it brings them back', async () => {
+  const list = [ws('w1', 'a'), ws('w2', 'b'), ws('w3', 'c')];
+  const closed = { kind: 4, target: { wsId: 'w9', label: 'gone', path: 'c:/p/w9' } };
+  const x = setup(list, { stars: [closed] });
+  await x.d._test.cycle('t');
+  await x.d.handle('star.set', { wsId: 'w1', kind: 1 });
+  await x.d.handle('star.set', { wsId: 'w3', kind: 2 });
+  assert.deepEqual(await x.d.handle('star.reset', {}), { cleared: 3 });
+  assert.equal(starTok(list, 'w1'), undefined);
+  assert.equal(starTok(list, 'w3'), undefined);
+  assert.equal(unitOf(await x.d.handle('view'), 'w1').star, 0);
+  assert.deepEqual(x.d._test.state().stars, []);
+  assert.deepEqual(await x.d.handle('star.reset', {}), { restored: 3 });
+  assert.equal(starTok(list, 'w1'), '★1');
+  assert.equal(starTok(list, 'w3'), '★2');
+  assert.ok(x.d._test.state().stars.some(s => s.target.wsId === 'w9'), 'the closed one is back too');
+  x.cleanup();
+});
+
+test('Alt+0 with no stars and nothing to bring back says so; after a new star it clears that one', async () => {
+  const list = [ws('w1', 'a'), ws('w2', 'b')];
+  const x = setup(list);
+  await x.d._test.cycle('t');
+  assert.deepEqual(await x.d.handle('star.reset', {}), {});
+  await x.d.handle('star.set', { wsId: 'w1', kind: 1 });
+  await x.d.handle('star.reset', {});
+  await x.d.handle('star.set', { wsId: 'w2', kind: 3 });
+  assert.deepEqual(await x.d.handle('star.reset', {}), { cleared: 1 });
+  assert.deepEqual(await x.d.handle('star.reset', {}), { restored: 1 });
+  assert.equal(starTok(list, 'w2'), '★3', 'Alt+0 brings back what the last Alt+0 took off');
+  assert.equal(starTok(list, 'w1'), undefined);
+  x.cleanup();
+});
+
+test('Alt+0 survives a helper restart: the stars taken off are kept on disk', async () => {
+  const list = [ws('w1', 'a')];
+  const x = setup(list);
+  await x.d._test.cycle('t');
+  await x.d.handle('star.set', { wsId: 'w1', kind: 2 });
+  await x.d.handle('star.reset', {});
+  assert.equal(store.loadState(path.join(x.dir, 'state.json')).starsUndo.length, 1);
+  x.cleanup();
+});
+
+test('Alt+0 is not offered as a hotkey', async () => {
+  const x = setup([ws('w1', 'a')]);
+  await x.d._test.cycle('t');
+  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+0', wsId: 'w1' }), /уже занята: звёздочки: снять все/);
+  const menu = await x.d.handle('hotkey.menu', { wsId: 'w1' });
+  assert.ok(!menu.choices.some(c => c.key === 'alt+0'));
   x.cleanup();
 });

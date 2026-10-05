@@ -61,3 +61,9 @@ test('review 2: closing a starred china-cars does not star the other china-cars'
   const p = { w1: 'C:/x', w2: 'C:/cars-b' };
   assert.equal(stars.nextStar([star('w5', 'china-cars', 1, 'c:/cars-a')], ws, p, 1), null);
 });
+
+test('the notice after Alt+0 says what happened and how to undo it', () => {
+  assert.equal(stars.resetNote({ cleared: 8 }), 'Сняты все звёздочки (8). Вернуть их: Alt+0 ещё раз.');
+  assert.equal(stars.resetNote({ restored: 3 }), 'Звёздочки вернулись (3).');
+  assert.equal(stars.resetNote({}), 'Звёздочек нет.');
+});

@@ -38,6 +38,7 @@ function emptyState() {
     duty: {},         // duty id -> duty record (see duty.js)
     hotkeys: [],      // [{ slot, key, target: { wsId, label, path, tabId?, tabLabel? } }] (see hotkeys.js)
     stars: [],        // [{ target: { wsId, label, path } }] (see stars.js)
+    starsUndo: [],    // what the last Alt+0 took off, for Alt+0 to bring back
     lastApplied: null, // workspace ids in the order the helper last saw or set
     lastCycleAt: null, // time of the last reconcile (continuity of observation)
     nextId: 1,

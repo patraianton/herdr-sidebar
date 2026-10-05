@@ -227,3 +227,10 @@ test('the keys block carries F1…F4, each puts or takes off one kind of star', 
     assert.ok(block.includes(`key = "${k}"\r\ntype = "plugin_action"\r\ncommand = "anton.sidebar.star-toggle-${i + 1}"`), k);
   });
 });
+
+test('the keys block carries Alt+0: every star off at once, or back again', () => {
+  const t = cp.patchConfig(ANTON).text;
+  const block = t.slice(t.indexOf(cp.KEYS_BEGIN), t.indexOf(cp.KEYS_END));
+  assert.equal(cp.RESET_KEY, 'alt+0');
+  assert.ok(block.includes('key = "alt+0"\r\ntype = "plugin_action"\r\ncommand = "anton.sidebar.star-reset"'));
+});

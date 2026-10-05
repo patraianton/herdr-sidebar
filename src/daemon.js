@@ -429,6 +429,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       used.set(hotkeys.normKey(configpatch.STAR_KEYS[i]), `звёздочки ${k.kind} «${k.name}»`);
       used.set(hotkeys.normKey(configpatch.TOGGLE_KEYS[i]), `звёздочка ${k.kind}: поставить или снять`);
     });
+    used.set(hotkeys.normKey(configpatch.RESET_KEY), 'звёздочки: снять все или вернуть');
     return used;
   };
 
@@ -644,6 +645,23 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       const w = snap.workspaces.find(x => x.focused);
       if (!w) throw new Error('Рабочее место не выбрано.');
       return setStar(snap, w.workspace_id, starKinds(snap).get(w.workspace_id) === k ? 0 : k);
+    },
+    // Alt+0: every star off, closed projects included, kept aside; pressed
+    // again while there are no stars, the ones kept aside come back.
+    'star.reset': async () => {
+      const list = state.stars || [];
+      if (list.length) {
+        state.starsUndo = list;
+        state.stars = [];
+        log('stars reset', list.length);
+        return { cleared: list.length };
+      }
+      const back = state.starsUndo || [];
+      if (!back.length) return {};
+      state.stars = back;
+      state.starsUndo = [];
+      log('stars restored', back.length);
+      return { restored: back.length };
     },
     'duty.status': async () => Object.values(state.duty).map(d => ({
       id: d.id, label: d.label, wsId: d.wsId, every: duty.fmtDur(d.everyMs), token: duty.dutyToken(d), alert: d.alert,
