@@ -32,12 +32,27 @@ test('fmtDur', () => {
   assert.equal(duty.fmtDur(25 * MIN + 59000), '25m');
   assert.equal(duty.fmtDur(60 * MIN), '1h');
   assert.equal(duty.fmtDur(90 * MIN), '1h30m');
-  assert.equal(duty.fmtDur(50 * 60 * MIN), '2d');
+  assert.equal(duty.fmtDur(50 * 60 * MIN), '2d2h');
+  assert.equal(duty.fmtDur(48 * 60 * MIN), '2d');
+});
+
+test('fmtAge: minutes in the first hour, then whole hours', () => {
+  assert.equal(duty.fmtAge(12 * MIN + 30000), '12m');
+  assert.equal(duty.fmtAge(5 * 60 * MIN + 59 * MIN), '5h');
+  assert.equal(duty.fmtAge(33 * 60 * MIN + 20 * MIN), '1d9h');
 });
 
 test('ok token while healthy', () => {
-  assert.equal(duty.dutyToken(fresh()), '◆ on duty · 30m');
-  assert.equal(duty.dutyToken(fresh({ everyMs: 60 * MIN })), '◆ on duty · 1h');
+  assert.equal(duty.dutyToken(fresh(), T0 + 5 * MIN), '◆ on duty 5m · every 30m');
+  assert.equal(duty.dutyToken(fresh({ everyMs: 60 * MIN }), T0 + 33 * 60 * MIN), '◆ on duty 1d9h · every 1h');
+  assert.equal(duty.dutyToken(fresh()), '◆ on duty · every 30m');
+});
+
+test('time on duty keeps adding up through ok, a restart of the duty and a recovery', () => {
+  let d = duty.applyOk(fresh(), T0 + 30 * MIN);
+  d = duty.applyReset(d, T0 + 60 * MIN);
+  d = duty.applyOk(d, T0 + 3 * 60 * MIN);
+  assert.equal(duty.dutyToken(d, T0 + 3 * 60 * MIN), '◆ on duty 3h · every 30m');
 });
 
 test('locateAgent: terminal, then agent session, then pane', () => {
@@ -82,7 +97,7 @@ test('recovery after an alert sends one recover event', () => {
   r = duty.evaluate(r.duty, agent({ agent_status: 'working' }), T0 + 51 * MIN, S, STARTED);
   assert.equal(r.event, 'recover');
   assert.equal(r.duty.alert, null);
-  assert.equal(duty.dutyToken(r.duty), '◆ on duty · 30m');
+  assert.equal(duty.dutyToken(r.duty), '◆ on duty · every 30m');
 });
 
 test('stuck on a question: blocked longer than 10 minutes', () => {
@@ -182,7 +197,7 @@ test('an agent back after a long absence with a new terminal is not reported as 
   assert.equal(r.event, 'alert');
   r = duty.evaluate(r.duty, agent({ terminal_id: 't9' }), T0 + 200 * MIN, S, STARTED);
   assert.equal(r.event, 'recover');
-  assert.equal(duty.dutyToken(r.duty), '◆ on duty · 30m');
+  assert.equal(duty.dutyToken(r.duty), '◆ on duty · every 30m');
 });
 
 test('ok clears an agent-reported alert at once, even right after the helper started', () => {
@@ -192,7 +207,7 @@ test('ok clears an agent-reported alert at once, even right after the helper sta
   d = duty.applyOk(r.duty, T0 + 2 * MIN);
   r = duty.evaluate(d, agent(), T0 + 2 * MIN, S, T0);
   assert.equal(r.event, 'recover');
-  assert.equal(duty.dutyToken(r.duty), '◆ on duty · 30m');
+  assert.equal(duty.dutyToken(r.duty), '◆ on duty · every 30m');
 });
 
 test('a window that comes back during the grace period is reported as recovered', () => {

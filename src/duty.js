@@ -18,7 +18,14 @@ function fmtDur(ms) {
   const h = Math.floor(m / 60);
   const r = m % 60;
   if (h < 24) return r ? `${h}h${r}m` : `${h}h`;
-  return `${Math.floor(h / 24)}d`;
+  return h % 24 ? `${Math.floor(h / 24)}d${h % 24}h` : `${Math.floor(h / 24)}d`;
+}
+
+// How long a duty has been on. Whole hours after the first one, so the
+// sidebar mark changes once a minute at most at first and then hourly.
+function fmtAge(ms) {
+  const m = Math.max(0, Math.floor(ms / MIN));
+  return m < 60 ? `${m}m` : fmtDur(Math.floor(m / 60) * 60 * MIN);
 }
 
 function newDuty({ id, wsId, label, paneId, terminalId, agentSession, everyMs, note, source, now }) {
@@ -121,14 +128,16 @@ function applyFail(d, now, reason) {
 
 function applyReset(d, now) { return { ...d, fail: null, alert: null, lastLifeAt: now, lastActiveAt: now, blockedSince: null, missingSince: null }; }
 
-function dutyToken(d) {
-  return d.alert ? `▲ ${d.alert.text}` : `◆ on duty · ${fmtDur(d.everyMs)}`;
+function dutyToken(d, now) {
+  if (d.alert) return `▲ ${d.alert.text}`;
+  const age = now && d.createdAt ? ` ${fmtAge(now - d.createdAt)}` : '';
+  return `◆ on duty${age} · every ${fmtDur(d.everyMs)}`;
 }
 
 function alertText(label, d) { return `🔴 Duty: ${label} — ${d.alert ? d.alert.text : 'alarm'}`; }
 function recoverText(label) { return `🟢 Duty: ${label} — working again`; }
 
 module.exports = {
-  DEFAULT_SETTINGS, parseEvery, fmtDur, newDuty, locateAgent, evaluate,
+  DEFAULT_SETTINGS, parseEvery, fmtDur, fmtAge, newDuty, locateAgent, evaluate,
   applyOk, applyFail, applyReset, dutyToken, alertText, recoverText,
 };

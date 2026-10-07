@@ -85,7 +85,7 @@ async function duty(argv) {
   } else if (sub === 'status') {
     const list = await helper('duty.status', {});
     if (!list.length) say('No duties.');
-    for (const d of list) say(`${d.label || d.wsId}: ${d.token}  (every ${d.every})`);
+    for (const d of list) say(`${d.label || d.wsId}: ${d.token}`);
   } else {
     say(USAGE);
     process.exit(1);

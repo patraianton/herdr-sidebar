@@ -256,7 +256,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     };
     for (const [wsId, title] of Object.entries(last.sections)) put(wsId, 'section', title);
     for (const [wsId, d] of Object.entries(state.detached)) put(wsId, 'project', `⎇ ${d.parentLabel}`);
-    for (const d of Object.values(state.duty)) if (d.wsId) put(d.wsId, 'duty', duty.dutyToken(d));
+    for (const d of Object.values(state.duty)) if (d.wsId) put(d.wsId, 'duty', duty.dutyToken(d, clock()));
     for (const [wsId, list] of keysByWs()) put(wsId, 'key', list.map(k => k.display).join(' '));
     for (const [wsId, kind] of starKinds(snap)) put(wsId, 'star', stars.token(kind));
     return want;
@@ -471,7 +471,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       paneId: a.pane_id, agent: a.agent || 'agent', title: a.terminal_title_stripped || '', status: a.agent_status,
     }));
     const dutyOf = wsId => Object.values(state.duty).filter(d => d.wsId === wsId).map(d => ({
-      id: d.id, paneId: d.paneId, text: duty.dutyToken(d), alert: !!d.alert, everyMs: d.everyMs,
+      id: d.id, paneId: d.paneId, text: duty.dutyToken(d, clock()), alert: !!d.alert, everyMs: d.everyMs,
     }));
     const keys = keysByWs();
     const keysOf = wsId => keys.get(wsId) || [];
@@ -678,7 +678,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       return { kind: k, name: stars.KINDS[k - 1].name };
     },
     'duty.status': async () => Object.values(state.duty).map(d => ({
-      id: d.id, label: d.label, wsId: d.wsId, every: duty.fmtDur(d.everyMs), token: duty.dutyToken(d), alert: d.alert,
+      id: d.id, label: d.label, wsId: d.wsId, every: duty.fmtDur(d.everyMs), token: duty.dutyToken(d, clock()), alert: d.alert,
     })),
     uninstall: async () => {
       stopping = true;

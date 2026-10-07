@@ -27,7 +27,7 @@ gives you a few fast ways to get where you need to be:
   feature/login
 ━━ AUTOMATIONS ━━
 ○ ads-watch · F7
-  ◆ on duty · 30m
+  ◆ on duty 1d9h · every 30m
 ○ nightly-report
   ▲ no wake-up for 46m
 ━━ NO CATEGORY ━━
