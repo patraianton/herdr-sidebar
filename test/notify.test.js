@@ -24,3 +24,12 @@ test('sendTelegram stays silent when not configured', async () => {
   assert.equal(await notify.sendTelegram(dir, 'x'), null);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('sendTelegram reads the chat and the bot key from .env in the config folder', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-tg-'));
+  fs.writeFileSync(path.join(dir, '.env'), 'TELEGRAM_CHAT_ID=42\n');
+  assert.equal(await notify.sendTelegram(dir, 'x'), false, 'chat set but no bot key: a failure, not "not set up"');
+  fs.writeFileSync(path.join(dir, 'telegram.json'), JSON.stringify({ enabled: false }));
+  assert.equal(await notify.sendTelegram(dir, 'x'), null, 'switched off');
+  fs.rmSync(dir, { recursive: true, force: true });
+});

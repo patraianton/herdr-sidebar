@@ -60,10 +60,10 @@ function request(pipe, cmd, args = {}, timeoutMs = 60000) {
       conn.destroy();
       if (err) reject(err); else resolve(val);
     };
-    const timer = setTimeout(() => finish(Object.assign(new Error(`${cmd}: помощник не ответил вовремя`), { code: 'ETIMEDOUT' })), timeoutMs);
+    const timer = setTimeout(() => finish(Object.assign(new Error(`${cmd}: the helper did not answer in time`), { code: 'ETIMEDOUT' })), timeoutMs);
     conn.setEncoding('utf8');
     conn.on('error', e => finish(e));
-    conn.on('close', () => finish(Object.assign(new Error(`${cmd}: связь с помощником оборвалась`), { code: 'ECONNRESET' })));
+    conn.on('close', () => finish(Object.assign(new Error(`${cmd}: the connection to the helper broke`), { code: 'ECONNRESET' })));
     conn.on('data', d => {
       buf += d;
       const nl = buf.indexOf('\n');
@@ -71,7 +71,7 @@ function request(pipe, cmd, args = {}, timeoutMs = 60000) {
       let msg;
       try { msg = JSON.parse(buf.slice(0, nl)); } catch (e) { finish(e); return; }
       if (msg.ok) finish(null, msg.result);
-      else finish(Object.assign(new Error(msg.error || 'ошибка помощника'), { remote: true }));
+      else finish(Object.assign(new Error(msg.error || 'helper error'), { remote: true }));
     });
     conn.on('connect', () => conn.write(JSON.stringify({ id: 1, cmd, args }) + '\n'));
   });

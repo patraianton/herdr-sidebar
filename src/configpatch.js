@@ -4,8 +4,10 @@
 // marker comments, and undo that exactly.
 const { KINDS, token } = require('./stars');
 
-const BEGIN = '# >>> anton.sidebar (плагин «Категории и дежурства»; откат: node sidebar/src/cli.js uninstall)';
+const BEGIN = '# >>> anton.sidebar (Sidebar Organizer plugin; undo: U in its window)';
 const END = '# <<< anton.sidebar';
+// Earlier versions wrote another text after the id; the id is what counts.
+const isBegin = l => l.trim() === BEGIN || l.trim().startsWith('# >>> anton.sidebar (');
 const KEYS_BEGIN = '# >>> anton.sidebar keys';
 const KEYS_END = '# <<< anton.sidebar keys';
 
@@ -28,11 +30,12 @@ const RESET_KEY = 'alt+0';
 const binding = (key, action, description) => [
   '[[keys.command]]', `key = "${key}"`, 'type = "plugin_action"', `command = "anton.sidebar.${action}"`, `description = "${description}"`,
 ];
+// Descriptions name no star kinds, so renaming a kind leaves config.toml alone.
 const FIXED_BINDINGS = [
-  ...binding(OPEN_KEY, 'open', 'категории и дежурства'),
-  ...KINDS.flatMap((k, i) => binding(STAR_KEYS[i], `star-${k.kind}`, `звёздочки ${k.kind}: ${k.name}`)),
-  ...KINDS.flatMap((k, i) => binding(TOGGLE_KEYS[i], `star-toggle-${k.kind}`, `звёздочка ${k.kind}: поставить или снять`)),
-  ...binding(RESET_KEY, 'star-reset', 'звёздочки: снять все или вернуть'),
+  ...binding(OPEN_KEY, 'open', 'sidebar organizer'),
+  ...KINDS.flatMap((k, i) => binding(STAR_KEYS[i], `star-${k.kind}`, `stars ${k.kind}: next project with this star`)),
+  ...KINDS.flatMap((k, i) => binding(TOGGLE_KEYS[i], `star-toggle-${k.kind}`, `star ${k.kind}: put on or take off`)),
+  ...binding(RESET_KEY, 'star-reset', 'stars: take all off or bring back'),
 ];
 const keysBlock = (extra = []) => [KEYS_BEGIN, ...FIXED_BINDINGS, ...extra, KEYS_END];
 const squash = s => s.replace(/\s+/g, '');
@@ -138,7 +141,7 @@ function rowsBlock(extra) {
 
 function patchConfig(text) {
   const { eol, lines } = splitLines(text);
-  if (lines.some(l => l.trim() === BEGIN || l.trim() === KEYS_BEGIN)) throw new Error('already installed');
+  if (lines.some(l => isBegin(l) || l.trim() === KEYS_BEGIN)) throw new Error('already installed');
   let originalRows = null;
   const t = findTable(lines, 'ui.sidebar.spaces');
   const hadTable = t >= 0;
@@ -175,7 +178,7 @@ function jumpBindings(inner) {
 // hotkeys). Uninstall still restores the rows saved at install.
 function refreshConfig(text) {
   const { eol, lines } = splitLines(text);
-  const b = lines.findIndex(l => l.trim() === BEGIN);
+  const b = lines.findIndex(isBegin);
   const e = lines.findIndex(l => l.trim() === END);
   if (b < 0 || e <= b) throw new Error('not installed');
   const extra = topLevelElements(lines.slice(b + 1, e).join('\n')).filter(x => !OUR_ROWS.has(squash(x)));
@@ -206,7 +209,7 @@ function unpatchConfig(text, { originalRows, hadTable }) {
   const kb = lines.findIndex(l => l.trim() === KEYS_BEGIN);
   const ke = lines.findIndex(l => l.trim() === KEYS_END);
   if (kb >= 0 && ke > kb) lines.splice(kb, ke - kb + 1);
-  const b = lines.findIndex(l => l.trim() === BEGIN);
+  const b = lines.findIndex(isBegin);
   const e = lines.findIndex(l => l.trim() === END);
   if (b >= 0 && e > b) {
     const repl = originalRows ? originalRows.split('\n') : [];

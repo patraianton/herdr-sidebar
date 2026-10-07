@@ -1,15 +1,22 @@
 'use strict';
-// Stars of four kinds: my project and three jobs. Alt+1…Alt+4 walk through the
-// workspaces of one kind. A star points at a workspace the same way a hotkey
+// Stars of four kinds, each with its own colour (say, your own project and
+// three jobs; settings.json "starNames" names them, the window renames them).
+// Alt+1…Alt+4 walk through the workspaces of one kind. A star points at a workspace the same way a hotkey
 // does ({ kind, target: { wsId, label, path } }), so it follows renames and restarts.
 const hotkeys = require('./hotkeys');
+const { settings } = require('./settings');
 
+const DEFAULT_NAMES = ['Main', 'Second', 'Third', 'Fourth'];
+const kindName = kind => {
+  const own = settings().starNames;
+  return (Array.isArray(own) && own[kind - 1] && String(own[kind - 1])) || DEFAULT_NAMES[kind - 1];
+};
 const KINDS = [
-  { kind: 1, name: 'Мой проект', color: '#fabd2f' },
-  { kind: 2, name: 'Первая работа', color: '#8ec07c' },
-  { kind: 3, name: 'Вторая работа', color: '#d3869b' },
-  { kind: 4, name: 'Третья работа', color: '#fe8019' },
-];
+  { kind: 1, color: '#fabd2f' },
+  { kind: 2, color: '#8ec07c' },
+  { kind: 3, color: '#d3869b' },
+  { kind: 4, color: '#fe8019' },
+].map(k => Object.defineProperty(k, 'name', { get: () => kindName(k.kind), enumerable: true }));
 const kindOf = s => s.kind || 1; // stars saved before kinds existed
 const token = kind => `★${kind}`;
 
@@ -39,9 +46,9 @@ function nextStar(stars, workspaces, paths, kind, lastId) {
 // Alt+0 takes every star off ({ cleared }) or, when there are none, brings
 // back what it took off last time ({ restored }).
 function resetNote(r) {
-  if (r.cleared) return `Сняты все звёздочки (${r.cleared}). Вернуть их: Alt+0 ещё раз.`;
-  if (r.restored) return `Звёздочки вернулись (${r.restored}).`;
-  return 'Звёздочек нет.';
+  if (r.cleared) return `All stars taken off (${r.cleared}). Bring them back: Alt+0 again.`;
+  if (r.restored) return `Stars are back (${r.restored}).`;
+  return 'No stars.';
 }
 
-module.exports = { KINDS, kindOf, token, starKinds, nextStar, resetNote };
+module.exports = { KINDS, DEFAULT_NAMES, kindOf, token, starKinds, nextStar, resetNote };

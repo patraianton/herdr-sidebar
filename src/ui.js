@@ -7,9 +7,10 @@ const ipc = require('./ipc');
 const paths = require('./paths');
 const core = require('./uicore');
 const stars = require('./stars');
+const userSettings = require('./settings');
 
 const SOCK = process.env.HERDR_SOCKET_PATH;
-if (!SOCK) { process.stderr.write('Окно плагина открывается из herdr.\n'); process.exit(2); }
+if (!SOCK) { process.stderr.write('The plugin window opens from herdr.\n'); process.exit(2); }
 const PIPE = paths.daemonPipe(SOCK);
 const out = process.stdout;
 const inp = process.stdin;
@@ -20,22 +21,22 @@ const A = {
   yellow: '\x1b[33m', red: '\x1b[31m', green: '\x1b[32m', cyan: '\x1b[36m',
 };
 const HELP = [
-  '↑/↓, PgUp/PgDn, Home/End — выбрать строку',
-  'Shift+↑/↓ или J/K — двигать проект или категорию',
-  'Мышь: щелчок — выбрать; перетащить строку — переставить',
-  'm — в другую категорию;  Enter — меню действий',
-  '→/← — показать или скрыть копии проекта',
-  'w — вынести копию из проекта / вернуть обратно',
-  't — дежурство: включить, сменить интервал, снять',
-  'k — горячая клавиша: прыжок к проекту (или к его вкладке) одним нажатием',
-  's — звёздочка: 1 мой проект, 2 первая работа, 3 вторая, 4 третья; или снять',
-  'F1…F4 (окно закрыто) — поставить звёздочку 1…4 на открытый проект, ещё раз — снять',
-  'Alt+1…Alt+4 (окно закрыто) — по кругу между проектами со звёздочкой этого вида',
-  'Alt+0 (окно закрыто) — снять все звёздочки сразу; ещё раз — вернуть их',
-  'n — новая категория;  r — переименовать;  x — удалить',
-  'U — выключить плагин и вернуть всё как было',
-  'q или Esc — закрыть окно',
-  'В «Без категории» порядок как в herdr: там двигайте мышью в панели herdr.',
+  '↑/↓, PgUp/PgDn, Home/End — select a row',
+  'Shift+↑/↓ or J/K — move a project or a category',
+  'Mouse: click — select; drag a row — move it',
+  'm — to another category;  Enter — actions menu',
+  '→/← — show or hide the worktree copies of a project',
+  'w — detach a copy from its project / put it back',
+  't — duty: start, change the interval, end',
+  'k — hotkey: jump to a project (or one of its tabs) with one key',
+  's — star: four kinds, each with its own colour; rename the kinds there too',
+  'F1…F4 (window closed) — star 1…4 on the open project, again — off',
+  'Alt+1…Alt+4 (window closed) — round the projects with that star',
+  'Alt+0 (window closed) — take every star off; again — bring them back',
+  'n — new category;  r — rename;  x — delete',
+  'U — switch the plugin off and put everything back',
+  'q or Esc — close the window',
+  'In "No category" the order is herdr\'s: move those with the mouse in the herdr sidebar.',
 ];
 
 function contextWs() {
@@ -76,7 +77,7 @@ function rebuild(keepId) {
 async function refresh() {
   const cur = S.rows[S.cursor];
   const keep = cur ? core.rowId(cur) : null;
-  try { S.view = await call('view'); } catch (e) { setMsg(`Помощник плагина не отвечает: ${e.message}`, true); }
+  try { S.view = await call('view'); } catch (e) { setMsg(`The plugin helper does not answer: ${e.message}`, true); }
   rebuild(keep);
 }
 
@@ -85,7 +86,7 @@ async function refresh() {
 function formatRow(r, W, selected, dropHint) {
   const pre = selected ? A.rev : (dropHint ? A.ul + A.cyan : '');
   if (r.type === 'cat') {
-    const name = r.catId === NONE ? 'БЕЗ КАТЕГОРИИ' : r.name.toUpperCase();
+    const name = r.catId === NONE ? 'NO CATEGORY' : r.name.toUpperCase();
     return pre + A.bold + A.yellow + core.fit(` ━━ ${name} ━━  (${r.count})`, W) + A.reset;
   }
   const child = r.type === 'child';
@@ -94,9 +95,9 @@ function formatRow(r, W, selected, dropHint) {
   if (child) head = '       └ ';
   else if (r.unit.kind === 'group') head = S.expanded.has(r.unit.key) ? '   ▾ ' : '   ▸ ';
   let extra = '';
-  if (!child && r.unit.kind === 'group') extra = `  [копий: ${r.unit.children.length}]`;
+  if (!child && r.unit.kind === 'group') extra = `  [copies: ${r.unit.children.length}]`;
   else if (!child && r.unit.detached) extra = `  ⎇ ${r.unit.detached.parentLabel}`;
-  else if (!child && r.unit.linked) extra = '  (копия)';
+  else if (!child && r.unit.linked) extra = '  (copy)';
   const duties = item.duty || [];
   const d = duties.find(x => x.alert) || duties[0];
   const right = d ? d.text : '';
@@ -123,9 +124,9 @@ function overlay(lines, W, H) {
       return `${i === m.sel ? '▶' : ' '} ${i < 9 ? `${i + 1}.` : '  '} ${it.label}`;
     });
   }
-  else if (m.type === 'input') body = [`${m.value}▏`, '', 'Enter — готово, Esc — отмена'];
-  else if (m.type === 'confirm') body = ['y или д — да;  n, н или Esc — нет'];
-  else if (m.type === 'help') body = [...HELP, '', 'Любая клавиша — закрыть'];
+  else if (m.type === 'input') body = [`${m.value}▏`, '', 'Enter — done, Esc — cancel'];
+  else if (m.type === 'confirm') body = ['y — yes;  n or Esc — no'];
+  else if (m.type === 'help') body = [...HELP, '', 'Any key — close'];
   const title = m.title || '';
   const inner = Math.min(W - 4, Math.max(36, [...title].length + 2, ...body.map(b => [...b].length + 2)));
   const left = Math.max(0, Math.floor((W - inner - 2) / 2));
@@ -149,13 +150,13 @@ function render() {
   if (S.cursor < S.scroll) S.scroll = S.cursor;
   if (S.cursor >= S.scroll + LH) S.scroll = S.cursor - LH + 1;
   S.scroll = Math.max(0, Math.min(S.scroll, Math.max(0, S.rows.length - LH)));
-  const session = S.view && S.view.session && S.view.session !== 'default' ? `  [сессия ${S.view.session}]` : '';
+  const session = S.view && S.view.session && S.view.session !== 'default' ? `  [session ${S.view.session}]` : '';
   const lines = [
-    A.bold + core.fit(` Категории и дежурства${session}`, W - 12) + A.reset + A.dim + core.fit('? — помощь', 12) + A.reset,
+    A.bold + core.fit(` Sidebar Organizer${session}`, W - 12) + A.reset + A.dim + core.fit('? — help', 12) + A.reset,
     A.dim + '─'.repeat(W) + A.reset,
   ];
   if (!S.view || !S.view.ready) {
-    lines.push(core.fit(S.view ? ' Помощник ещё собирает данные…' : ' Загрузка…', W));
+    lines.push(core.fit(S.view ? ' The helper is still collecting data…' : ' Loading…', W));
   } else {
     for (let i = 0; i < LH; i++) {
       const idx = S.scroll + i;
@@ -167,10 +168,10 @@ function render() {
   lines.length = LH + 2;
   lines.push(A.dim + '─'.repeat(W) + A.reset);
   const fresh = S.msg && Date.now() - S.msgAt < 8000;
-  lines.push(S.busy ? A.cyan + core.fit(' …работаю', W) + A.reset
+  lines.push(S.busy ? A.cyan + core.fit(' …working', W) + A.reset
     : (fresh ? (S.msgErr ? A.red : A.cyan) + core.fit(` ${S.msg}`, W) + A.reset : ''));
-  lines.push(A.dim + core.fit(' ↑↓ выбор · Shift+↑↓ двигать · m в категорию · s звёздочка · k клавиша · Enter меню', W) + A.reset);
-  lines.push(A.dim + core.fit(' →/← копии · n новая · r переименовать · x удалить · w вынести · t дежурство · q выход', W) + A.reset);
+  lines.push(A.dim + core.fit(' ↑↓ select · Shift+↑↓ move · m category · s star · k hotkey · Enter menu', W) + A.reset);
+  lines.push(A.dim + core.fit(' →/← copies · n new · r rename · x delete · w detach · t duty · q quit', W) + A.reset);
   if (S.mode) overlay(lines, W, H);
   out.write(`\x1b[H${lines.map(l => `${l}\x1b[0m\x1b[K`).join('\r\n')}\x1b[J`);
 }
@@ -193,7 +194,7 @@ async function act(fn, okMsg) {
 }
 
 const menu = (title, items, sel = 0) => { S.mode = { type: 'menu', title, items, sel: Math.max(0, Math.min(sel, items.length - 1)) }; };
-const input = (title, value, onDone) => { S.mode = { type: 'input', title, value: value || '', onDone }; };
+const input = (title, value, onDone, opts = {}) => { S.mode = { type: 'input', title, value: value || '', onDone, allowEmpty: !!opts.allowEmpty }; };
 const confirm = (title, onYes) => { S.mode = { type: 'confirm', title, onYes }; };
 
 function move(delta) { S.cursor = Math.max(0, Math.min(S.rows.length - 1, S.cursor + delta)); }
@@ -213,134 +214,134 @@ function expand(r, open) {
 function shift(r, delta) {
   if (!r || !S.view) return undefined;
   if (r.type === 'cat') {
-    if (r.catId === NONE) return setMsg('«Без категории» всегда внизу.');
+    if (r.catId === NONE) return setMsg('"No category" is always at the bottom.');
     const i = realCats().findIndex(c => c.id === r.catId);
     const to = i + delta;
     if (to < 0 || to >= realCats().length) return undefined;
     return act(() => call('category.move', { id: r.catId, toIndex: to }));
   }
-  if (r.type === 'child') return setMsg('Копия ездит вместе со своим проектом. Чтобы поставить её отдельно, вынесите её: w');
+  if (r.type === 'child') return setMsg('A copy moves with its project. To place it on its own, detach it: w');
   const t = core.stepTarget(S.view, r.catId, r.index, delta);
   if (!t) return undefined;
-  if (t.catId === NONE && r.catId === NONE) return setMsg('В «Без категории» порядок как в herdr: двигайте мышью в панели herdr.');
+  if (t.catId === NONE && r.catId === NONE) return setMsg('In "No category" the order is herdr\'s: move with the mouse in the herdr sidebar.');
   return act(() => call('unit.move', { key: r.unit.key, catId: t.catId, index: t.index }));
 }
 
 function drop(from, to) {
   if (!from || !to) return undefined;
   if (from.type === 'cat') {
-    if (from.catId === NONE) return setMsg('«Без категории» всегда внизу.');
+    if (from.catId === NONE) return setMsg('"No category" is always at the bottom.');
     let toIndex = realCats().findIndex(c => c.id === to.catId);
     if (toIndex < 0) toIndex = realCats().length - 1;
     return act(() => call('category.move', { id: from.catId, toIndex }));
   }
-  if (from.type === 'child') return setMsg('Копия ездит вместе со своим проектом. Чтобы поставить её отдельно, вынесите её: w');
+  if (from.type === 'child') return setMsg('A copy moves with its project. To place it on its own, detach it: w');
   const t = core.dropTarget(S.view, from, to);
   if (!t) return undefined;
-  if (t.catId === NONE && from.catId === NONE) return setMsg('В «Без категории» порядок как в herdr.');
+  if (t.catId === NONE && from.catId === NONE) return setMsg('In "No category" the order is herdr\'s.');
   return act(() => call('unit.move', { key: from.unit.key, catId: t.catId, index: t.index }));
 }
 
 function newCategory() {
-  input('Название новой категории', '', name => act(() => call('category.create', { name }), `Категория «${name}» создана`));
+  input('Name of the new category', '', name => act(() => call('category.create', { name }), `Category "${name}" created`));
 }
 
 function renameCategory(r) {
-  if (!r || r.type !== 'cat' || r.catId === NONE) return setMsg('Выберите строку категории.', true);
-  return input('Новое название', r.name, name => act(() => call('category.rename', { id: r.catId, name }), 'Переименовано'));
+  if (!r || r.type !== 'cat' || r.catId === NONE) return setMsg('Select a category row.', true);
+  return input('New name', r.name, name => act(() => call('category.rename', { id: r.catId, name }), 'Renamed'));
 }
 
 function deleteCategory(r) {
-  if (!r || r.type !== 'cat' || r.catId === NONE) return setMsg('Выберите строку категории.', true);
-  return confirm(`Удалить «${r.name}»? Её проекты уйдут в «Без категории».`,
-    () => act(() => call('category.delete', { id: r.catId }), 'Категория удалена'));
+  if (!r || r.type !== 'cat' || r.catId === NONE) return setMsg('Select a category row.', true);
+  return confirm(`Delete "${r.name}"? Its projects go to "No category".`,
+    () => act(() => call('category.delete', { id: r.catId }), 'Category deleted'));
 }
 
 function categoryChoices(run) {
   return [...realCats().map(c => ({ label: c.name, run: () => run(c.id, c.name) })),
-    { label: 'Без категории', run: () => run(NONE, 'Без категории') }];
+    { label: 'No category', run: () => run(NONE, 'No category') }];
 }
 
 function pickCategory(r) {
-  if (!r || r.type !== 'unit') return setMsg('Выберите проект.', true);
-  if (!realCats().length) return setMsg('Сначала создайте категорию: n', true);
-  return menu(`Куда перенести «${r.unit.label}»?`,
-    categoryChoices((catId, name) => act(() => call('unit.move', { key: r.unit.key, catId, index: 1e9 }), `Перенесено в «${name}»`)),
+  if (!r || r.type !== 'unit') return setMsg('Select a project.', true);
+  if (!realCats().length) return setMsg('Create a category first: n', true);
+  return menu(`Move "${r.unit.label}" where?`,
+    categoryChoices((catId, name) => act(() => call('unit.move', { key: r.unit.key, catId, index: 1e9 }), `Moved to "${name}"`)),
     Math.max(0, realCats().findIndex(c => c.id === r.catId)));
 }
 
 function detachOrReturn(r) {
   if (!r) return undefined;
   if (r.type === 'child') {
-    return menu(`Вынести «${r.child.label}» из «${r.unit.label}». В какую категорию?`,
-      categoryChoices(catId => act(() => call('unit.detach', { wsId: r.child.wsId, catId }), 'Копия вынесена. Окна и агенты работают как прежде.')),
+    return menu(`Detach "${r.child.label}" from "${r.unit.label}". Into which category?`,
+      categoryChoices(catId => act(() => call('unit.detach', { wsId: r.child.wsId, catId }), 'Copy detached. Panes and agents keep working.')),
       Math.max(0, realCats().findIndex(c => c.id === r.catId)));
   }
   if (r.type === 'unit' && r.unit.detached) {
-    return confirm(`Вернуть «${r.unit.label}» в проект «${r.unit.detached.parentLabel}»?`,
-      () => act(() => call('unit.reattach', { wsId: r.unit.anchorId }), 'Копия вернулась в проект'));
+    return confirm(`Put "${r.unit.label}" back into "${r.unit.detached.parentLabel}"?`,
+      () => act(() => call('unit.reattach', { wsId: r.unit.anchorId }), 'The copy is back in its project'));
   }
   if (r.type === 'unit' && r.unit.kind === 'group') {
     S.expanded.add(r.unit.key);
     rebuild(core.rowId(r));
-    return setMsg('Выберите копию в раскрытом списке и нажмите w.');
+    return setMsg('Select a copy in the opened list and press w.');
   }
-  if (r.type === 'unit' && r.unit.linked) return setMsg('Эта копия и так стоит отдельно: её основной проект сейчас закрыт.');
-  return setMsg('Выносить можно только копию проекта (worktree).', true);
+  if (r.type === 'unit' && r.unit.linked) return setMsg('This copy already stands apart: its main project is closed.');
+  return setMsg('Only a worktree copy of a project can be detached.', true);
 }
 
-const INTERVALS = [['15 минут', '15m'], ['30 минут', '30m'], ['1 час', '1h'], ['2 часа', '2h']];
+const INTERVALS = [['15 minutes', '15m'], ['30 minutes', '30m'], ['1 hour', '1h'], ['2 hours', '2h']];
 
 function dutyMenu(wsId, item) {
   const start = paneId => {
-    const run = every => act(() => call('duty.start', { wsId, paneId, every, source: 'manual' }), r => `Дежурство включено: раз в ${r.every}`);
-    menu('Как часто агент должен просыпаться?', [
+    const run = every => act(() => call('duty.start', { wsId, paneId, every, source: 'manual' }), r => `Duty is on: every ${r.every}`);
+    menu('How often must the agent wake up?', [
       ...INTERVALS.map(([label, v]) => ({ label, run: () => run(v) })),
-      { label: 'Своё значение…', run: () => input('Интервал, например 45m, 3h, 90', '', v => run(v)) },
+      { label: 'Custom…', run: () => input('Interval, e.g. 45m, 3h, 90', '', v => run(v)) },
     ], 1);
   };
   const duties = item.duty || [];
   const d = duties.find(x => x.alert) || duties[0];
   if (d) {
-    return menu(`Дежурство: ${d.text}`, [
-      { label: 'Изменить интервал…', run: () => start(d.paneId) },
-      ...(d.alert ? [{ label: 'Сбросить тревогу', run: () => act(() => call('duty.reset', { id: d.id }), 'Тревога сброшена') }] : []),
-      { label: 'Снять дежурство', run: () => act(() => call('duty.stop', { id: d.id }), 'Дежурство снято') },
+    return menu(`Duty: ${d.text}`, [
+      { label: 'Change the interval…', run: () => start(d.paneId) },
+      ...(d.alert ? [{ label: 'Reset the alarm', run: () => act(() => call('duty.reset', { id: d.id }), 'Alarm reset') }] : []),
+      { label: 'End the duty', run: () => act(() => call('duty.stop', { id: d.id }), 'Duty ended') },
     ]);
   }
   const agents = item.agents || [];
-  if (!agents.length) return setMsg('В этом рабочем месте нет агента — дежурство не к кому привязать.', true);
+  if (!agents.length) return setMsg('There is no agent in this workspace — nobody to put on duty.', true);
   if (agents.length === 1) return start(agents[0].paneId);
-  return menu('Какой агент дежурит?', agents.map(a => ({ label: `${a.agent} · ${a.title || a.paneId}`, run: () => start(a.paneId) })));
+  return menu('Which agent is on duty?', agents.map(a => ({ label: `${a.agent} · ${a.title || a.paneId}`, run: () => start(a.paneId) })));
 }
 
 function dutyMenuFor(r) {
-  if (!r || r.type === 'cat') return setMsg('Выберите проект.', true);
+  if (!r || r.type === 'cat') return setMsg('Select a project.', true);
   return r.type === 'child' ? dutyMenu(r.child.wsId, r.child) : dutyMenu(r.unit.anchorId, r.unit);
 }
 
 function keyMenu(m, wsId, tabId, title) {
   const set = key => act(() => call('hotkey.set', { key, wsId, tabId }), res => {
-    let t = `${res.display} → «${res.label}»`;
-    if (res.takenFrom) t += `, у «${res.takenFrom}» она снята`;
-    if (res.replaced) t += `, прежняя ${res.replaced} снята`;
-    if (res.reloaded === false) t += '. herdr не перечитал настройки: нажмите Ctrl+B, потом Shift+R';
+    let t = `${res.display} → "${res.label}"`;
+    if (res.takenFrom) t += `, taken off "${res.takenFrom}"`;
+    if (res.replaced) t += `, the old ${res.replaced} is removed`;
+    if (res.reloaded === false) t += '. herdr did not reload its settings: press prefix (Ctrl+B), then Shift+R';
     return t;
   });
   const items = m.current.map(c => ({
-    label: `Снять ${c.display}${c.tabLabel ? ` (вкладка «${c.tabLabel}»)` : ''}`,
-    run: () => act(() => call('hotkey.clear', { key: c.key }), `${c.display} снята`),
+    label: `Remove ${c.display}${c.tabLabel ? ` (tab "${c.tabLabel}")` : ''}`,
+    run: () => act(() => call('hotkey.clear', { key: c.key }), `${c.display} removed`),
   }));
   const first = items.length;
-  for (const c of m.choices) items.push({ label: c.owner ? `${c.display}    сейчас: ${c.owner}` : c.display, run: () => set(c.key) });
-  items.push({ label: 'Своя комбинация…', run: () => input('Сочетание, например ctrl+alt+k, prefix+alt+1, f9', '', v => set(v)) });
+  for (const c of m.choices) items.push({ label: c.owner ? `${c.display}    now: ${c.owner}` : c.display, run: () => set(c.key) });
+  items.push({ label: 'Custom combination…', run: () => input('Combination, e.g. ctrl+alt+k, prefix+alt+1, f9', '', v => set(v)) });
   const free = m.choices.findIndex(c => !c.owner);
-  menu(`Клавиша для «${title}»`, items, free >= 0 ? first + free : first);
+  menu(`Key for "${title}"`, items, free >= 0 ? first + free : first);
 }
 
 async function hotkeyFor(r) {
   if (S.busy) return undefined;
-  if (!r || r.type === 'cat') return setMsg('Выберите проект.', true);
+  if (!r || r.type === 'cat') return setMsg('Select a project.', true);
   const wsId = r.type === 'child' ? r.child.wsId : r.unit.anchorId;
   const label = r.type === 'child' ? r.child.label : r.unit.label;
   let m;
@@ -349,9 +350,9 @@ async function hotkeyFor(r) {
   try { m = await call('hotkey.menu', { wsId }); } catch (e) { setMsg(e.message, true); } finally { S.busy = false; }
   if (m && m.tabs.length < 2) keyMenu(m, wsId, null, label);
   else if (m) {
-    menu(`«${label}»: куда прыгать по клавише?`, [
-      { label: 'В проект (на вкладку, открытую последней)', run: () => keyMenu(m, wsId, null, label) },
-      ...m.tabs.map(t => ({ label: `На вкладку «${t.label || t.tabId}»`, run: () => keyMenu(m, wsId, t.tabId, `${label} › ${t.label}`) })),
+    menu(`"${label}": where should the key jump?`, [
+      { label: 'To the project (the tab opened last)', run: () => keyMenu(m, wsId, null, label) },
+      ...m.tabs.map(t => ({ label: `To the tab "${t.label || t.tabId}"`, run: () => keyMenu(m, wsId, t.tabId, `${label} › ${t.label}`) })),
     ]);
   }
   render(); // the answer came after the key press was drawn
@@ -366,48 +367,64 @@ function starColor(kind) {
   return `\x1b[38;2;${r};${g};${b}m`;
 }
 
-// s: pick the kind of star (the digit picks it straight away) or take it off.
+// The name of a kind as the helper has it (renames happen there).
+const starName = kind => (S.view && S.view.starNames && S.view.starNames[kind - 1]) || stars.KINDS[kind - 1].name;
+
+// Rename the kinds: pick one, type its name; an empty name brings the default back.
+function renameStars() {
+  menu('Rename which kind of star?', stars.KINDS.map(k => ({
+    label: `★${k.kind} ${starName(k.kind)}`,
+    run: () => input(`Name for ★${k.kind} (empty — "${stars.DEFAULT_NAMES[k.kind - 1]}")`, starName(k.kind), name => act(async () => {
+      const res = await call('star.rename', { kind: k.kind, name });
+      userSettings.useConfigDir(null); // read the new name in this window too
+      return res;
+    }, res => `★${res.kind} is now "${res.name}"`), { allowEmpty: true }),
+  })));
+}
+
+// s: pick the kind of star (the digit picks it straight away), take it off, or rename the kinds.
 function starMenu(r) {
-  if (!r || r.type === 'cat') return setMsg('Выберите проект.', true);
+  if (!r || r.type === 'cat') return setMsg('Select a project.', true);
   const item = r.type === 'child' ? r.child : r.unit;
   const wsId = r.type === 'child' ? r.child.wsId : r.unit.anchorId;
   const set = kind => act(() => call('star.set', { wsId, kind }), res => (res.kind
-    ? `★${res.kind} «${res.label}»: ${stars.KINDS[res.kind - 1].name}. Переход между ними: Alt+${res.kind}`
-    : `Звёздочка с «${res.label}» снята`));
+    ? `★${res.kind} "${res.label}": ${starName(res.kind)}. Go round them: Alt+${res.kind}`
+    : `Star taken off "${res.label}"`));
   const items = stars.KINDS.map(k => ({
-    label: `★${k.kind} ${k.name} — Alt+${k.kind}${item.star === k.kind ? '   (сейчас)' : ''}`, run: () => set(k.kind),
+    label: `★${k.kind} ${starName(k.kind)} — Alt+${k.kind}${item.star === k.kind ? '   (now)' : ''}`, run: () => set(k.kind),
   }));
-  if (item.star) items.push({ label: 'Снять звёздочку', run: () => set(0) });
-  items.push({ label: 'Снять все звёздочки со всех проектов — Alt+0', run: () => act(() => call('star.reset', {}), stars.resetNote) });
-  return menu(`Звёздочка для «${item.label}»`, items, item.star ? item.star - 1 : 0);
+  if (item.star) items.push({ label: 'Take the star off', run: () => set(0) });
+  items.push({ label: 'Take every star off every project — Alt+0', run: () => act(() => call('star.reset', {}), stars.resetNote) });
+  items.push({ label: 'Rename the kinds of stars…', run: () => renameStars() });
+  return menu(`Star for "${item.label}"`, items, item.star ? item.star - 1 : 0);
 }
 
 function openMenu(r) {
   if (!r) return undefined;
   const items = [];
   if (r.type === 'cat') {
-    items.push({ label: 'Новая категория', run: () => newCategory() });
+    items.push({ label: 'New category', run: () => newCategory() });
     if (r.catId !== NONE) {
-      items.push({ label: 'Переименовать', run: () => renameCategory(r) });
-      items.push({ label: 'Поднять выше', run: () => shift(r, -1) });
-      items.push({ label: 'Опустить ниже', run: () => shift(r, 1) });
-      items.push({ label: 'Удалить категорию', run: () => deleteCategory(r) });
+      items.push({ label: 'Rename', run: () => renameCategory(r) });
+      items.push({ label: 'Move up', run: () => shift(r, -1) });
+      items.push({ label: 'Move down', run: () => shift(r, 1) });
+      items.push({ label: 'Delete the category', run: () => deleteCategory(r) });
     }
   } else if (r.type === 'unit') {
-    items.push({ label: 'Перенести в категорию…', run: () => pickCategory(r) });
-    if (r.unit.detached) items.push({ label: `Вернуть в проект «${r.unit.detached.parentLabel}»`, run: () => detachOrReturn(r) });
+    items.push({ label: 'Move to a category…', run: () => pickCategory(r) });
+    if (r.unit.detached) items.push({ label: `Put back into "${r.unit.detached.parentLabel}"`, run: () => detachOrReturn(r) });
     if (r.unit.kind === 'group') {
       const open = S.expanded.has(r.unit.key);
-      items.push({ label: open ? 'Скрыть копии' : 'Показать копии', run: () => expand(r, !open) });
+      items.push({ label: open ? 'Hide copies' : 'Show copies', run: () => expand(r, !open) });
     }
-    items.push({ label: 'Дежурство…', run: () => dutyMenuFor(r) });
-    items.push({ label: 'Горячая клавиша…', run: () => hotkeyFor(r) });
-    items.push({ label: 'Звёздочка…', run: () => starMenu(r) });
+    items.push({ label: 'Duty…', run: () => dutyMenuFor(r) });
+    items.push({ label: 'Hotkey…', run: () => hotkeyFor(r) });
+    items.push({ label: 'Star…', run: () => starMenu(r) });
   } else {
-    items.push({ label: 'Вынести из проекта…', run: () => detachOrReturn(r) });
-    items.push({ label: 'Дежурство…', run: () => dutyMenuFor(r) });
-    items.push({ label: 'Горячая клавиша…', run: () => hotkeyFor(r) });
-    items.push({ label: 'Звёздочка…', run: () => starMenu(r) });
+    items.push({ label: 'Detach from the project…', run: () => detachOrReturn(r) });
+    items.push({ label: 'Duty…', run: () => dutyMenuFor(r) });
+    items.push({ label: 'Hotkey…', run: () => hotkeyFor(r) });
+    items.push({ label: 'Star…', run: () => starMenu(r) });
   }
   const title = r.type === 'cat' ? r.name : (r.type === 'child' ? r.child.label : r.unit.label);
   return menu(title, items);
@@ -415,13 +432,13 @@ function openMenu(r) {
 
 function uninstallFlow() {
   const detached = S.view ? S.view.categories.reduce((n, c) => n + c.units.filter(u => u.detached).length, 0) : 0;
-  const note = detached ? ` Вынесенных копий: ${detached} — они останутся отдельно; вернуть их можно заранее клавишей w.` : '';
-  input(`Выключить плагин и вернуть панель как было?${note} Напишите «да»`, '', v => {
-    if (v.trim().toLowerCase() !== 'да') { setMsg('Отменено.'); return; }
+  const note = detached ? ` Detached copies: ${detached} — they stay apart; put them back first with w if you like.` : '';
+  input(`Switch the plugin off and put the sidebar back as it was?${note} Type "yes"`, '', v => {
+    if ([...v.trim()].map(core.latin).join('').toLowerCase() !== 'yes') { setMsg('Cancelled.'); return; }
     spawn(process.execPath, [path.join(__dirname, 'cli.js'), 'uninstall'], {
       detached: true, stdio: 'ignore', windowsHide: true, env: process.env,
     }).unref();
-    setMsg('Выключаю плагин…');
+    setMsg('Switching the plugin off…');
     render();
     setTimeout(quit, 300);
   });
@@ -450,7 +467,7 @@ function modeKey(ev) {
     if (ev.key === 'enter') {
       const v = m.value.trim();
       S.mode = null;
-      if (v) m.onDone(v);
+      if (v || m.allowEmpty) m.onDone(v);
     } else if (ev.key === 'backspace') {
       m.value = [...m.value].slice(0, -1).join('');
     } else if (ev.char) {
@@ -459,7 +476,8 @@ function modeKey(ev) {
     return;
   }
   if (m.type === 'confirm') {
-    if (['y', 'Y', 'д', 'Д'].includes(ev.char)) { S.mode = null; m.onYes(); } else if (['n', 'N', 'н', 'Н'].includes(ev.char)) S.mode = null;
+    const c = ev.char ? core.latin(ev.char).toLowerCase() : '';
+    if (c === 'y') { S.mode = null; m.onYes(); } else if (c === 'n') S.mode = null;
   }
 }
 
@@ -488,7 +506,7 @@ function onKey(ev) {
   else if (ch === 't') dutyMenuFor(r);
   else if (ch === 'k') hotkeyFor(r);
   else if (ch === 's' || ev.char === '*') starMenu(r);
-  else if (ch === '?' || ev.char === ',') S.mode = { type: 'help', title: 'Помощь' };
+  else if (ch === '?' || ev.char === ',') S.mode = { type: 'help', title: 'Help' };
   else if (ch === 'U') uninstallFlow();
 }
 

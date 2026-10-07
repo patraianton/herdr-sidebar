@@ -5,8 +5,7 @@
 const { normPath } = require('./paths');
 
 const MAX_SLOTS = 30; // herdr-plugin.toml declares the actions jump-1 … jump-30
-// Digits and function keys do not depend on the keyboard layout (Russian or
-// English), and Windows Terminal leaves Alt+digit and these F keys alone.
+// Digits and function keys do not depend on the keyboard layout, and Windows Terminal leaves Alt+digit and these F keys alone.
 const CHOICES = [
   ...'1234567890'.split('').map(d => `alt+${d}`),
   ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12].map(n => `f${n}`),
@@ -70,7 +69,7 @@ function usedKeys(configText, defaultsText, ourBegin, ourEnd) {
   let ours = false;
   let cmd = null;
   const flush = () => {
-    if (cmd && cmd.key) add(cmd.key, cmd.desc ? `«${cmd.desc}»` : 'другая команда herdr');
+    if (cmd && cmd.key) add(cmd.key, cmd.desc ? `"${cmd.desc}"` : 'another herdr command');
     cmd = null;
   };
   for (const line of String(configText || '').split(/\r?\n/)) {
@@ -113,7 +112,7 @@ function bindingLines(hotkeys, pluginId) {
   const out = [];
   for (const hk of [...hotkeys].sort((a, b) => a.slot - b.slot)) {
     out.push('[[keys.command]]', `key = "${tomlEsc(hk.key)}"`, 'type = "plugin_action"',
-      `command = "${pluginId}.jump-${hk.slot}"`, `description = "${tomlEsc(`прыжок: ${targetText(hk.target)}`)}"`);
+      `command = "${pluginId}.jump-${hk.slot}"`, `description = "${tomlEsc(`jump: ${targetText(hk.target)}`)}"`);
   }
   return out;
 }
@@ -133,7 +132,7 @@ function wsPath(w, paths) {
 // The workspace a hotkey or a star points at. The id alone is not proof: after
 // a herdr restart an id can belong to another workspace, so the name decides;
 // among namesakes the folder decides, then the id. A namesake in another folder
-// is a different project (two china-cars), not the closed one, unless it has
+// is a different project (two clones with one name), not the closed one, unless it has
 // the same id. An id whose name changed counts only if its folder is still the
 // same (renamed while herdr was down).
 function findWorkspace(target, workspaces, paths) {

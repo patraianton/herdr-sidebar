@@ -8,7 +8,7 @@ const { emptyState } = require('../src/store');
 function fakeHerdr() {
   const w = {
     workspaces: [
-      { workspace_id: 'w1', label: 'autopase', worktree: { repo_key: 'C:\\p\\ap\\.git', repo_root: 'C:\\p\\ap', checkout_path: 'C:\\p\\ap', is_linked_worktree: false } },
+      { workspace_id: 'w1', label: 'acme-api', worktree: { repo_key: 'C:\\p\\ap\\.git', repo_root: 'C:\\p\\ap', checkout_path: 'C:\\p\\ap', is_linked_worktree: false } },
       { workspace_id: 'w2', label: 'cookie', worktree: { repo_key: 'C:\\p\\ap\\.git', repo_root: 'C:\\p\\ap', checkout_path: '\\\\?\\C:\\wt\\cookie', is_linked_worktree: true } },
       { workspace_id: 'w3', label: 'plain' },
     ],
@@ -69,7 +69,7 @@ test('detach moves panes in tab order with tab labels and records the copy', asy
   ]);
   assert.equal(w.calls[0][2].tab_label, 'main');
   assert.deepEqual(s.detached.w10, {
-    checkout: 'C:\\wt\\cookie', repoKey: 'c:/p/ap/.git', repoRoot: 'C:\\p\\ap', parentLabel: 'autopase', name: 'cookie', at: s.detached.w10.at,
+    checkout: 'C:\\wt\\cookie', repoKey: 'c:/p/ap/.git', repoRoot: 'C:\\p\\ap', parentLabel: 'acme-api', name: 'cookie', at: s.detached.w10.at,
   });
   assert.deepEqual(s.categories[0].units, ['repo:c:/p/ap/.git', 'ws:w10', 'ws:w3']);
   assert.equal(s.duty.d1.wsId, 'w10');
@@ -77,7 +77,7 @@ test('detach moves panes in tab order with tab labels and records the copy', asy
 
 test('detach refuses a workspace that is not a worktree', async () => {
   const { h } = fakeHerdr();
-  await assert.rejects(ops.detach(h, emptyState(), { wsId: 'w3' }), /не копия/);
+  await assert.rejects(ops.detach(h, emptyState(), { wsId: 'w3' }), /not a worktree/);
 });
 
 test('reattach when herdr recognises the detached workspace', async () => {
@@ -137,7 +137,7 @@ test('detach: herdr refuses the first move -> error, nothing recorded', async ()
   const s = emptyState();
   s.categories = [{ id: 'c1', name: 'A', units: ['repo:c:/p/ap/.git'] }];
   w.refuse.add('w2:p1');
-  await assert.rejects(ops.detach(h, s, { wsId: 'w2' }), /не перенёс/);
+  await assert.rejects(ops.detach(h, s, { wsId: 'w2' }), /did not move/);
   assert.deepEqual(s.detached, {});
   assert.deepEqual(s.categories[0].units, ['repo:c:/p/ap/.git']);
   assert.equal(w.calls.filter(c => c[0] === 'move').length, 1, 'stops after the refused move');

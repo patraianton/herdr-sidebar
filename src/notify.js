@@ -1,6 +1,8 @@
 'use strict';
-// Telegram messages from the Fixer bot. The bot key is read from its .env on
-// every send and is never copied or logged.
+// Optional Telegram alerts for duty agents. In the plugin config folder put a
+// .env with TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID, or a telegram.json with
+// chatId (and envFile/envKey when the bot key lives in another .env). The key is
+// read on every send and is never copied or logged.
 const fs = require('node:fs');
 const https = require('node:https');
 const path = require('node:path');
@@ -19,11 +21,14 @@ function readEnvValue(file, key) {
 // true: sent; false: failed (worth one retry); null: Telegram is not set up.
 function sendTelegram(configDir, text, { log = () => {} } = {}) {
   if (process.env.SIDEBAR_TELEGRAM_DISABLED === '1') return Promise.resolve(null);
-  const cfg = loadJson(path.join(configDir, 'telegram.json'), null);
-  if (!cfg || !cfg.chatId || cfg.enabled === false) return Promise.resolve(null);
-  const token = readEnvValue(cfg.envFile, cfg.envKey || 'TELEGRAM_SESSION_BOT_TOKEN');
-  if (!token) { log('telegram: bot key not found in', cfg.envFile); return Promise.resolve(false); }
-  const body = JSON.stringify({ chat_id: cfg.chatId, text, disable_web_page_preview: true });
+  const cfg = loadJson(path.join(configDir, 'telegram.json'), null) || {};
+  if (cfg.enabled === false) return Promise.resolve(null);
+  const envFile = cfg.envFile || path.join(configDir, '.env');
+  const chatId = cfg.chatId || readEnvValue(envFile, 'TELEGRAM_CHAT_ID');
+  if (!chatId) return Promise.resolve(null);
+  const token = readEnvValue(envFile, cfg.envKey || 'TELEGRAM_BOT_TOKEN');
+  if (!token) { log('telegram: bot key not found in', envFile); return Promise.resolve(false); }
+  const body = JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true });
   return new Promise(resolve => {
     const req = https.request({
       hostname: 'api.telegram.org', path: `/bot${token}/sendMessage`, method: 'POST', timeout: 15000,

@@ -1,8 +1,10 @@
+# Sidebar Organizer: categories, colour stars, jump hotkeys and duty-agent alerts
+# for the herdr Spaces sidebar. https://github.com/patraianton/herdr-sidebar
 id = "anton.sidebar"
-name = "Категории и дежурства"
-version = "0.6.0"
+name = "Sidebar Organizer"
+version = "0.7.0"
 min_herdr_version = "0.9.1"
-description = "Свои категории в боковой панели Spaces, вынос копий проекта из группы, пометка и проверка дежурных агентов, горячие клавиши для прыжка к проекту, звёздочки на важных проектах"
+description = "Categories in the Spaces sidebar, colour stars with Alt+1…4, jump hotkeys, worktree detach and alerts when a 24/7 agent stops working"
 platforms = ["windows", "linux", "macos"]
 
 [[startup]]
@@ -30,218 +32,224 @@ command = ["node", "src/ensure.js"]
 
 [[actions]]
 id = "open"
-title = "Категории и дежурства"
+title = "Sidebar Organizer"
 contexts = ["workspace"]
 command = ["node", "src/cli.js", "open"]
 
 [[actions]]
 id = "ensure"
-title = "Запустить помощника «Категорий и дежурств»"
+title = "Sidebar Organizer: start the helper"
 command = ["node", "src/ensure.js"]
 
-# Alt+1…Alt+4: к следующему проекту со звёздочкой этого вида.
+# Set up: adds the sidebar rows and the key bindings to config.toml (undo: U in the window).
+[[actions]]
+id = "setup"
+title = "Sidebar Organizer: set up or update"
+command = ["node", "src/cli.js", "setup"]
+
+# Alt+1…Alt+4: the next project with a star of this kind.
 [[actions]]
 id = "star-1"
-title = "Звёздочки 1: мой проект"
+title = "Stars 1: next project with this star"
 command = ["node", "src/cli.js", "star", "1"]
 
 [[actions]]
 id = "star-2"
-title = "Звёздочки 2: первая работа"
+title = "Stars 2: next project with this star"
 command = ["node", "src/cli.js", "star", "2"]
 
 [[actions]]
 id = "star-3"
-title = "Звёздочки 3: вторая работа"
+title = "Stars 3: next project with this star"
 command = ["node", "src/cli.js", "star", "3"]
 
 [[actions]]
 id = "star-4"
-title = "Звёздочки 4: третья работа"
+title = "Stars 4: next project with this star"
 command = ["node", "src/cli.js", "star", "4"]
 
-# F1…F4: поставить звёздочку этого вида на открытый сейчас проект или снять её.
+# F1…F4: put the star of this kind on the focused project or take it off.
 [[actions]]
 id = "star-toggle-1"
-title = "Звёздочка 1 на этот проект: поставить или снять"
+title = "Star 1 on this project: put on or take off"
 command = ["node", "src/cli.js", "star-toggle", "1"]
 
 [[actions]]
 id = "star-toggle-2"
-title = "Звёздочка 2 на этот проект: поставить или снять"
+title = "Star 2 on this project: put on or take off"
 command = ["node", "src/cli.js", "star-toggle", "2"]
 
 [[actions]]
 id = "star-toggle-3"
-title = "Звёздочка 3 на этот проект: поставить или снять"
+title = "Star 3 on this project: put on or take off"
 command = ["node", "src/cli.js", "star-toggle", "3"]
 
 [[actions]]
 id = "star-toggle-4"
-title = "Звёздочка 4 на этот проект: поставить или снять"
+title = "Star 4 on this project: put on or take off"
 command = ["node", "src/cli.js", "star-toggle", "4"]
 
-# Alt+0: снять все звёздочки; ещё раз, пока звёздочек нет, — вернуть их.
+# Alt+0: every star off; pressed again while there are none, they come back.
 [[actions]]
 id = "star-reset"
-title = "Снять все звёздочки или вернуть снятые"
+title = "Stars: take all off or bring back"
 command = ["node", "src/cli.js", "star-reset"]
 
-# Горячие клавиши: config.toml связывает клавишу с действием jump-N, а что такое N,
-# помощник хранит у себя (окно плагина, клавиша k). 30 мест хватит с запасом.
+# Jump hotkeys: config.toml binds a key to the action jump-N, and the helper keeps
+# what N points at (window, key k). 30 slots is plenty.
 [[actions]]
 id = "jump-1"
-title = "Прыжок по горячей клавише 1"
+title = "Jump hotkey 1"
 command = ["node", "src/cli.js", "jump", "1"]
 
 [[actions]]
 id = "jump-2"
-title = "Прыжок по горячей клавише 2"
+title = "Jump hotkey 2"
 command = ["node", "src/cli.js", "jump", "2"]
 
 [[actions]]
 id = "jump-3"
-title = "Прыжок по горячей клавише 3"
+title = "Jump hotkey 3"
 command = ["node", "src/cli.js", "jump", "3"]
 
 [[actions]]
 id = "jump-4"
-title = "Прыжок по горячей клавише 4"
+title = "Jump hotkey 4"
 command = ["node", "src/cli.js", "jump", "4"]
 
 [[actions]]
 id = "jump-5"
-title = "Прыжок по горячей клавише 5"
+title = "Jump hotkey 5"
 command = ["node", "src/cli.js", "jump", "5"]
 
 [[actions]]
 id = "jump-6"
-title = "Прыжок по горячей клавише 6"
+title = "Jump hotkey 6"
 command = ["node", "src/cli.js", "jump", "6"]
 
 [[actions]]
 id = "jump-7"
-title = "Прыжок по горячей клавише 7"
+title = "Jump hotkey 7"
 command = ["node", "src/cli.js", "jump", "7"]
 
 [[actions]]
 id = "jump-8"
-title = "Прыжок по горячей клавише 8"
+title = "Jump hotkey 8"
 command = ["node", "src/cli.js", "jump", "8"]
 
 [[actions]]
 id = "jump-9"
-title = "Прыжок по горячей клавише 9"
+title = "Jump hotkey 9"
 command = ["node", "src/cli.js", "jump", "9"]
 
 [[actions]]
 id = "jump-10"
-title = "Прыжок по горячей клавише 10"
+title = "Jump hotkey 10"
 command = ["node", "src/cli.js", "jump", "10"]
 
 [[actions]]
 id = "jump-11"
-title = "Прыжок по горячей клавише 11"
+title = "Jump hotkey 11"
 command = ["node", "src/cli.js", "jump", "11"]
 
 [[actions]]
 id = "jump-12"
-title = "Прыжок по горячей клавише 12"
+title = "Jump hotkey 12"
 command = ["node", "src/cli.js", "jump", "12"]
 
 [[actions]]
 id = "jump-13"
-title = "Прыжок по горячей клавише 13"
+title = "Jump hotkey 13"
 command = ["node", "src/cli.js", "jump", "13"]
 
 [[actions]]
 id = "jump-14"
-title = "Прыжок по горячей клавише 14"
+title = "Jump hotkey 14"
 command = ["node", "src/cli.js", "jump", "14"]
 
 [[actions]]
 id = "jump-15"
-title = "Прыжок по горячей клавише 15"
+title = "Jump hotkey 15"
 command = ["node", "src/cli.js", "jump", "15"]
 
 [[actions]]
 id = "jump-16"
-title = "Прыжок по горячей клавише 16"
+title = "Jump hotkey 16"
 command = ["node", "src/cli.js", "jump", "16"]
 
 [[actions]]
 id = "jump-17"
-title = "Прыжок по горячей клавише 17"
+title = "Jump hotkey 17"
 command = ["node", "src/cli.js", "jump", "17"]
 
 [[actions]]
 id = "jump-18"
-title = "Прыжок по горячей клавише 18"
+title = "Jump hotkey 18"
 command = ["node", "src/cli.js", "jump", "18"]
 
 [[actions]]
 id = "jump-19"
-title = "Прыжок по горячей клавише 19"
+title = "Jump hotkey 19"
 command = ["node", "src/cli.js", "jump", "19"]
 
 [[actions]]
 id = "jump-20"
-title = "Прыжок по горячей клавише 20"
+title = "Jump hotkey 20"
 command = ["node", "src/cli.js", "jump", "20"]
 
 [[actions]]
 id = "jump-21"
-title = "Прыжок по горячей клавише 21"
+title = "Jump hotkey 21"
 command = ["node", "src/cli.js", "jump", "21"]
 
 [[actions]]
 id = "jump-22"
-title = "Прыжок по горячей клавише 22"
+title = "Jump hotkey 22"
 command = ["node", "src/cli.js", "jump", "22"]
 
 [[actions]]
 id = "jump-23"
-title = "Прыжок по горячей клавише 23"
+title = "Jump hotkey 23"
 command = ["node", "src/cli.js", "jump", "23"]
 
 [[actions]]
 id = "jump-24"
-title = "Прыжок по горячей клавише 24"
+title = "Jump hotkey 24"
 command = ["node", "src/cli.js", "jump", "24"]
 
 [[actions]]
 id = "jump-25"
-title = "Прыжок по горячей клавише 25"
+title = "Jump hotkey 25"
 command = ["node", "src/cli.js", "jump", "25"]
 
 [[actions]]
 id = "jump-26"
-title = "Прыжок по горячей клавише 26"
+title = "Jump hotkey 26"
 command = ["node", "src/cli.js", "jump", "26"]
 
 [[actions]]
 id = "jump-27"
-title = "Прыжок по горячей клавише 27"
+title = "Jump hotkey 27"
 command = ["node", "src/cli.js", "jump", "27"]
 
 [[actions]]
 id = "jump-28"
-title = "Прыжок по горячей клавише 28"
+title = "Jump hotkey 28"
 command = ["node", "src/cli.js", "jump", "28"]
 
 [[actions]]
 id = "jump-29"
-title = "Прыжок по горячей клавише 29"
+title = "Jump hotkey 29"
 command = ["node", "src/cli.js", "jump", "29"]
 
 [[actions]]
 id = "jump-30"
-title = "Прыжок по горячей клавише 30"
+title = "Jump hotkey 30"
 command = ["node", "src/cli.js", "jump", "30"]
 
 [[panes]]
 id = "panel"
-title = "Категории и дежурства"
+title = "Sidebar Organizer"
 placement = "popup"
 width = "80%"
 height = "80%"

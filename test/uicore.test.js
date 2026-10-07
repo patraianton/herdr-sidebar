@@ -9,7 +9,7 @@ const VIEW = {
   categories: [
     { id: 'c1', name: 'A', units: [unit('ws:w1'), unit('repo:r', { kind: 'group', anchorId: 'w2', wsIds: ['w2', 'w4'], children: [{ wsId: 'w4', label: 'cookie', duty: [], agents: [] }] })] },
     { id: 'c2', name: 'B', units: [] },
-    { id: '__none', name: 'БЕЗ КАТЕГОРИИ', units: [unit('ws:w3')] },
+    { id: '__none', name: 'NO CATEGORY', units: [unit('ws:w3')] },
   ],
 };
 

@@ -20,13 +20,14 @@ const ops = require('./ops');
 const hotkeys = require('./hotkeys');
 const configpatch = require('./configpatch');
 const stars = require('./stars');
+const userSettings = require('./settings');
 
 const SUBSCRIPTIONS = [
   'workspace.created', 'workspace.closed', 'workspace.moved', 'workspace.reordered', 'workspace.renamed',
   'worktree.created', 'worktree.opened', 'worktree.removed',
 ].map(type => ({ type }));
 const TOKEN_KEYS = ['section', 'project', 'duty', 'key', 'star'];
-const NOT_INSTALLED = 'Плагин не установлен в настройки herdr. Запустите: node sidebar/src/cli.js install';
+const NOT_INSTALLED = 'The plugin is not set up in herdr\'s config yet. Run: herdr plugin action invoke setup --plugin anton.sidebar';
 
 // config.toml access for the hotkeys; tests pass their own.
 function defaultKeysConfig(configDir) {
@@ -55,14 +56,14 @@ function defaultKeysConfig(configDir) {
       const r = run(['config', 'check'], { HERDR_CONFIG_PATH: file });
       const out = `${r.stdout || ''}\n${r.stderr || ''}`;
       if (r.error || !/^config: (ok|issues found)$/m.test(out)) {
-        throw new Error(`Не смог проверить настройки herdr: ${r.error ? r.error.message : out.trim() || `код ${r.status}`}`);
+        throw new Error(`Could not check herdr settings: ${r.error ? r.error.message : out.trim() || `exit code ${r.status}`}`);
       }
       return out.split(/\r?\n/).map(l => l.trim()).filter(l => l && !/^config: (ok|issues found)$/.test(l));
     },
     defaults: () => {
       if (defaults === null) {
         const r = run(['--default-config']);
-        if (r.error || r.status !== 0 || !/\[keys\]/.test(r.stdout || '')) throw new Error('Не смог узнать клавиши herdr по умолчанию.');
+        if (r.error || r.status !== 0 || !/\[keys\]/.test(r.stdout || '')) throw new Error('Could not read herdr\'s default keys.');
         defaults = r.stdout;
       }
       return defaults;
@@ -82,7 +83,8 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     log: path.join(dir, 'daemon.log'),
     headerDir: path.join(dir, 'header'),
   };
-  const settings = { ...duty.DEFAULT_SETTINGS, ...store.loadJson(path.join(configDir, 'settings.json'), {}) };
+  userSettings.useConfigDir(configDir);
+  const settings = { ...duty.DEFAULT_SETTINGS, ...userSettings.settings() };
   let state = store.loadState(files.state);
   let startedAt = clock();
   let chain = Promise.resolve();
@@ -277,9 +279,9 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
 
   function signal(event, d) {
     const label = d.label || d.wsId;
-    const body = event === 'alert' ? d.alert.text : 'снова работает';
+    const body = event === 'alert' ? d.alert.text : 'working again';
     log('duty', event, label, body);
-    herdr.notify(`Дежурство: ${label}`, body).catch(e => log('toast failed', e.message));
+    herdr.notify(`Duty: ${label}`, body).catch(e => log('toast failed', e.message));
     const text = event === 'alert' ? duty.alertText(label, d) : duty.recoverText(label);
     sendTelegram(configDir, text, { log })
       .then(r => log('telegram', r === null ? 'not set up' : (r ? 'sent' : 'failed')));
@@ -380,12 +382,12 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
 
   const cleanName = name => {
     const n = String(name || '').replace(/[\r\n\t]+/g, ' ').replace(/━/g, '').trim().slice(0, 40);
-    if (!n) throw new Error('Пустое название.');
+    if (!n) throw new Error('The name is empty.');
     return n;
   };
   const catById = id => {
     const c = state.categories.find(x => x.id === id);
-    if (!c) throw new Error('Такой категории нет.');
+    if (!c) throw new Error('No such category.');
     return c;
   };
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -405,14 +407,14 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
   // 1…4, or 0 (no star) where taking the star off is allowed.
   function starKind(kind, zeroOk) {
     const k = Number(kind) || 0;
-    if ((k || !zeroOk) && !stars.KINDS.some(x => x.kind === k)) throw new Error(`Нет такого вида звёздочки: ${kind}.`);
+    if ((k || !zeroOk) && !stars.KINDS.some(x => x.kind === k)) throw new Error(`No such star: ${kind}.`);
     return k;
   }
 
   // One star per workspace: the new kind replaces the old one, 0 takes it off.
   function setStar(snap, wsId, k) {
     const w = snap.byId.get(wsId);
-    if (!w) throw new Error('Этого рабочего места уже нет.');
+    if (!w) throw new Error('This workspace is gone.');
     const list = state.stars || [];
     const others = list.filter(s => (hotkeys.findWorkspace(s.target, snap.workspaces, snap.paths) || {}).workspace_id !== wsId);
     state.stars = k ? [...others, { kind: k, target: { wsId, label: w.label, path: hotkeys.wsPath(w, snap.paths) } }] : others;
@@ -424,12 +426,12 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     const file = keysConfig.file();
     if (!file) throw new Error(NOT_INSTALLED);
     const used = hotkeys.usedKeys(keysConfig.read(file), keysConfig.defaults(), configpatch.KEYS_BEGIN, configpatch.KEYS_END);
-    used.set(hotkeys.normKey(configpatch.OPEN_KEY), 'окно плагина «Категории и дежурства»');
+    used.set(hotkeys.normKey(configpatch.OPEN_KEY), 'the Sidebar Organizer window');
     stars.KINDS.forEach((k, i) => {
-      used.set(hotkeys.normKey(configpatch.STAR_KEYS[i]), `звёздочки ${k.kind} «${k.name}»`);
-      used.set(hotkeys.normKey(configpatch.TOGGLE_KEYS[i]), `звёздочка ${k.kind}: поставить или снять`);
+      used.set(hotkeys.normKey(configpatch.STAR_KEYS[i]), `stars ${k.kind} "${k.name}"`);
+      used.set(hotkeys.normKey(configpatch.TOGGLE_KEYS[i]), `star ${k.kind}: put on or take off`);
     });
-    used.set(hotkeys.normKey(configpatch.RESET_KEY), 'звёздочки: снять все или вернуть');
+    used.set(hotkeys.normKey(configpatch.RESET_KEY), 'stars: take all off or bring back');
     return used;
   };
 
@@ -454,7 +456,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     const fresh = keysConfig.issues(file).filter(l => !was.has(hotkeys.issueKey(l)));
     if (fresh.length) {
       putKeysBlock(file, state.hotkeys || []);
-      throw new Error(`herdr не принял клавишу, настройки не тронуты: ${fresh.join('; ')}`);
+      throw new Error(`herdr did not accept the key, settings untouched: ${fresh.join('; ')}`);
     }
     try { await herdr.reloadConfig(); return true; } catch (e) { log('reload_config failed', e.message); return false; }
   }
@@ -489,8 +491,8 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       id: c.id, name: c.name,
       units: c.units.filter(k => units.byKey[k]).map(k => { assigned.add(k); return unitView(units.byKey[k]); }),
     }));
-    categories.push({ id: model.NONE_ID, name: 'БЕЗ КАТЕГОРИИ', units: units.units.filter(u => !assigned.has(u.key)).map(unitView) });
-    return { ready: true, session: paths.sessionName(socketPath), categories };
+    categories.push({ id: model.NONE_ID, name: 'NO CATEGORY', units: units.units.filter(u => !assigned.has(u.key)).map(unitView) });
+    return { ready: true, session: paths.sessionName(socketPath), categories, starNames: stars.KINDS.map(k => k.name) };
   }
 
   async function dutyTarget(args) {
@@ -504,26 +506,26 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       || null;
     return { pane, found };
   }
-  const NO_DUTY = 'Для этого окна дежурство не включено. Сначала: herdr-duty start --every 30m';
+  const NO_DUTY = 'Duty is not on for this pane. First: herdr-duty start --every 30m';
 
   const handlers = {
     ping: async () => ({ pid: process.pid, session: paths.sessionName(socketPath), connected, startedAt }),
     view: () => buildView(),
     'category.create': async ({ name }) => {
       const n = cleanName(name);
-      if (state.categories.some(c => c.name.toUpperCase() === n.toUpperCase())) throw new Error(`Категория «${n}» уже есть.`);
+      if (state.categories.some(c => c.name.toUpperCase() === n.toUpperCase())) throw new Error(`Category "${n}" already exists.`);
       state.categories.push({ id: `c${state.nextId++}`, name: n, units: [] });
     },
     'category.rename': async ({ id, name }) => { catById(id).name = cleanName(name); },
     'category.delete': async ({ id }) => { catById(id); state.categories = state.categories.filter(c => c.id !== id); },
     'category.move': async ({ id, toIndex }) => {
       const i = state.categories.findIndex(c => c.id === id);
-      if (i < 0) throw new Error('Такой категории нет.');
+      if (i < 0) throw new Error('No such category.');
       const [c] = state.categories.splice(i, 1);
       state.categories.splice(clamp(Number(toIndex) || 0, 0, state.categories.length), 0, c);
     },
     'unit.move': async ({ key, catId, index }) => {
-      if (!last.units || !last.units.byKey[key]) throw new Error('Этого проекта уже нет в списке.');
+      if (!last.units || !last.units.byKey[key]) throw new Error('This project is not in the list any more.');
       for (const c of state.categories) c.units = c.units.filter(k => k !== key);
       if (catId && catId !== model.NONE_ID) {
         const c = catById(catId);
@@ -534,9 +536,9 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     'unit.reattach': async ({ wsId }) => ops.reattach(herdr, state, { wsId }),
     'duty.start': async args => {
       const everyMs = duty.parseEvery(args.every);
-      if (!everyMs) throw new Error(`Не понял интервал «${args.every}». Пример: 30m, 1h, 2ч.`);
+      if (!everyMs) throw new Error(`Cannot read the interval "${args.every}". Examples: 30m, 1h, 90.`);
       const { pane, found } = await dutyTarget(args);
-      if (!pane && !found) throw new Error('Не нашёл окно агента. Команду надо запускать из окна агента в herdr.');
+      if (!pane && !found) throw new Error('Cannot find the agent pane. Run the command from the agent\'s pane in herdr.');
       const now = clock();
       let d;
       if (found) {
@@ -595,17 +597,17 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     },
     'hotkey.set': async ({ key, wsId, tabId }) => {
       const k = hotkeys.normKey(key);
-      if (!k) throw new Error(`«${key}» не годится. Примеры: alt+1, f5, ctrl+alt+k, prefix+alt+1`);
+      if (!k) throw new Error(`"${key}" will not do. Examples: alt+1, f5, ctrl+alt+k, prefix+alt+1`);
       const show = hotkeys.displayKey(k);
       const used = usedElsewhere();
-      if (used.has(k)) throw new Error(`${show} уже занята: ${used.get(k)}`);
+      if (used.has(k)) throw new Error(`${show} is taken: ${used.get(k)}`);
       const snap = last.snap || await snapshot();
       const w = snap.byId.get(wsId);
-      if (!w) throw new Error('Этого рабочего места уже нет.');
+      if (!w) throw new Error('This workspace is gone.');
       let target = { wsId, label: w.label, path: hotkeys.wsPath(w, snap.paths) };
       if (tabId) {
         const t = (await herdr.listTabs(wsId)).find(x => x.tab_id === tabId);
-        if (!t) throw new Error('Этой вкладки уже нет.');
+        if (!t) throw new Error('This tab is gone.');
         target = { ...target, tabId, tabLabel: t.label || '' };
       }
       const prev = state.hotkeys || [];
@@ -614,7 +616,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       const old = prev.find(h => h.key !== k && sameTarget(h));
       const others = prev.filter(h => h.key !== k && !sameTarget(h));
       const slot = (was && was.slot) || (old && old.slot) || hotkeys.nextSlot(others);
-      if (!slot) throw new Error(`Больше ${hotkeys.MAX_SLOTS} клавиш назначить нельзя: снимите какую-нибудь.`);
+      if (!slot) throw new Error(`No more than ${hotkeys.MAX_SLOTS} keys: remove one first.`);
       const next = [...others, { slot, key: k, target }];
       const reloaded = await writeKeys(next);
       state.hotkeys = next;
@@ -628,7 +630,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     'hotkey.clear': async ({ key }) => {
       const k = hotkeys.normKey(key);
       const prev = state.hotkeys || [];
-      if (!prev.some(h => h.key === k)) throw new Error('Эта клавиша не назначена.');
+      if (!prev.some(h => h.key === k)) throw new Error('This key is not bound.');
       const next = prev.filter(h => h.key !== k);
       const reloaded = await writeKeys(next);
       state.hotkeys = next;
@@ -643,7 +645,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       const k = starKind(kind, false);
       const snap = await snapshot();
       const w = snap.workspaces.find(x => x.focused);
-      if (!w) throw new Error('Рабочее место не выбрано.');
+      if (!w) throw new Error('No workspace is focused.');
       return setStar(snap, w.workspace_id, starKinds(snap).get(w.workspace_id) === k ? 0 : k);
     },
     // Alt+0: every star off, closed projects included, kept aside; pressed
@@ -662,6 +664,18 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       state.starsUndo = [];
       log('stars restored', back.length);
       return { restored: back.length };
+    },
+    // Name a kind of star in settings.json; an empty name brings the default back.
+    'star.rename': async ({ kind, name }) => {
+      const k = starKind(kind, false);
+      const file = path.join(configDir, 'settings.json');
+      const s = store.loadJson(file, {}) || {};
+      const names = stars.KINDS.map((x, i) => (Array.isArray(s.starNames) && s.starNames[i]) || '');
+      names[k - 1] = String(name || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 30);
+      store.saveJson(file, { ...s, starNames: names });
+      userSettings.useConfigDir(configDir);
+      log('star kind renamed', k);
+      return { kind: k, name: stars.KINDS[k - 1].name };
     },
     'duty.status': async () => Object.values(state.duty).map(d => ({
       id: d.id, label: d.label, wsId: d.wsId, every: duty.fmtDur(d.everyMs), token: duty.dutyToken(d), alert: d.alert,
@@ -695,7 +709,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       } catch (e) {
         stopping = false;
         log('uninstall failed', e.message);
-        throw new Error(`Откат не удался: ${e.message}. Плагин продолжает работать, ничего не выключено.`);
+        throw new Error(`Uninstall failed: ${e.message}. The plugin keeps working, nothing is switched off.`);
       }
       setTimeout(() => shutdown(0), 300);
       return { restored: !!orig, detachedLeft };
@@ -703,11 +717,11 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     shutdown: async () => { setTimeout(() => shutdown(0), 100); return { ok: true }; },
   };
   const UNSERIALIZED = new Set(['ping', 'view']);
-  const NO_CYCLE = new Set(['duty.status', 'hotkey.menu', 'uninstall', 'shutdown']);
+  const NO_CYCLE = new Set(['duty.status', 'hotkey.menu', 'star.rename', 'uninstall', 'shutdown']);
 
   function handle(cmd, args) {
     const fn = handlers[cmd];
-    if (!fn) return Promise.reject(new Error(`Неизвестная команда: ${cmd}`));
+    if (!fn) return Promise.reject(new Error(`Unknown command: ${cmd}`));
     if (UNSERIALIZED.has(cmd)) return fn(args);
     return serial(async () => {
       const result = await fn(args);
@@ -758,7 +772,7 @@ if (require.main === module) {
   const stateRoot = process.env.HERDR_PLUGIN_STATE_DIR;
   const configDir = process.env.HERDR_PLUGIN_CONFIG_DIR;
   if (!socketPath || !stateRoot || !configDir) {
-    process.stderr.write('Помощник запускается из herdr (нет переменных HERDR_*).\n');
+    process.stderr.write('The helper is started by herdr (HERDR_* variables are not set).\n');
     process.exit(2);
   }
   if (paths.helperOff(stateRoot, socketPath)) process.exit(0);

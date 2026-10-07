@@ -3,15 +3,10 @@
 const MIN = 60000;
 const DEFAULT_SETTINGS = { tickSec: 30, blockedMin: 10, missingMin: 3, graceMin: 10, silenceMarginMin: 10 };
 
-const UNIT_MS = {
-  s: 1000, 'с': 1000,
-  m: MIN, 'м': MIN, min: MIN, 'мин': MIN,
-  h: 60 * MIN, 'ч': 60 * MIN,
-  d: 1440 * MIN, 'д': 1440 * MIN,
-};
+const UNIT_MS = { s: 1000, m: MIN, min: MIN, h: 60 * MIN, d: 1440 * MIN };
 
 function parseEvery(text) {
-  const m = String(text || '').trim().toLowerCase().match(/^(\d+(?:[.,]\d+)?)\s*(s|с|m|м|min|мин|h|ч|d|д)?$/);
+  const m = String(text || '').trim().toLowerCase().match(/^(\d+(?:[.,]\d+)?)\s*(s|m|min|h|d)?$/);
   if (!m) return null;
   const ms = Math.round(parseFloat(m[1].replace(',', '.')) * UNIT_MS[m[2] || 'm']);
   return ms > 0 ? ms : null;
@@ -19,11 +14,11 @@ function parseEvery(text) {
 
 function fmtDur(ms) {
   const m = Math.max(0, Math.floor(ms / MIN));
-  if (m < 60) return `${m}м`;
+  if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60);
   const r = m % 60;
-  if (h < 24) return r ? `${h}ч${r}м` : `${h}ч`;
-  return `${Math.floor(h / 24)}д`;
+  if (h < 24) return r ? `${h}h${r}m` : `${h}h`;
+  return `${Math.floor(h / 24)}d`;
 }
 
 function newDuty({ id, wsId, label, paneId, terminalId, agentSession, everyMs, note, source, now }) {
@@ -74,14 +69,14 @@ function observe(prev, agent, now) {
 function condition(d, now, settings) {
   if (d.fail) return { kind: 'fail', text: d.fail.reason };
   if (d.missingSince !== null && now - d.missingSince >= settings.missingMin * MIN) {
-    return { kind: 'gone', text: 'окно агента пропало' };
+    return { kind: 'gone', text: 'agent pane is gone' };
   }
   if (d.blockedSince !== null && now - d.blockedSince >= settings.blockedMin * MIN) {
-    return { kind: 'blocked', text: `ждёт ответа ${fmtDur(now - d.blockedSince)}` };
+    return { kind: 'blocked', text: `waiting for input ${fmtDur(now - d.blockedSince)}` };
   }
   const silent = now - d.lastLifeAt;
   if (silent > d.everyMs + Math.max(d.everyMs / 2, settings.silenceMarginMin * MIN)) {
-    return { kind: 'sleep', text: `не просыпался ${fmtDur(silent)}` };
+    return { kind: 'sleep', text: `no wake-up for ${fmtDur(silent)}` };
   }
   return null;
 }
@@ -108,7 +103,7 @@ function evaluate(prev, agent, now, settings, startedAt) {
     if (!agent) return { duty: d, event: null };
     // "Stopped waking" ends only with real activity seen after the alert began.
     if (d.alert.kind === 'sleep' && !(d.lastActiveAt > d.alert.since)) {
-      d.alert = { ...d.alert, text: `не просыпался ${fmtDur(now - (d.lastActiveAt || d.alert.since))}` };
+      d.alert = { ...d.alert, text: `no wake-up for ${fmtDur(now - (d.lastActiveAt || d.alert.since))}` };
       return { duty: d, event: null };
     }
     d.alert = null;
@@ -120,18 +115,18 @@ function evaluate(prev, agent, now, settings, startedAt) {
 function applyOk(d, now) { return { ...d, lastLifeAt: now, lastActiveAt: now, fail: null }; }
 
 function applyFail(d, now, reason) {
-  const text = String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 70) || 'агент сообщил о беде';
+  const text = String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 70) || 'the agent reported a problem';
   return { ...d, fail: { reason: text, at: now } };
 }
 
 function applyReset(d, now) { return { ...d, fail: null, alert: null, lastLifeAt: now, lastActiveAt: now, blockedSince: null, missingSince: null }; }
 
 function dutyToken(d) {
-  return d.alert ? `▲ ${d.alert.text}` : `◆ дежурит · ${fmtDur(d.everyMs)}`;
+  return d.alert ? `▲ ${d.alert.text}` : `◆ on duty · ${fmtDur(d.everyMs)}`;
 }
 
-function alertText(label, d) { return `🔴 Дежурство: ${label} — ${d.alert ? d.alert.text : 'тревога'}`; }
-function recoverText(label) { return `🟢 Дежурство: ${label} — снова работает`; }
+function alertText(label, d) { return `🔴 Duty: ${label} — ${d.alert ? d.alert.text : 'alarm'}`; }
+function recoverText(label) { return `🟢 Duty: ${label} — working again`; }
 
 module.exports = {
   DEFAULT_SETTINGS, parseEvery, fmtDur, newDuty, locateAgent, evaluate,

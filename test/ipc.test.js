@@ -13,11 +13,11 @@ test('request/response, remote errors and a busy pipe', async () => {
   const pipe = pipeName();
   const server = await ipc.serve(pipe, async (cmd, args) => {
     if (cmd === 'echo') return { got: args.x };
-    throw new Error('плохая команда');
+    throw new Error('bad command');
   });
   try {
-    assert.deepEqual(await ipc.request(pipe, 'echo', { x: 'привет' }), { got: 'привет' });
-    await assert.rejects(ipc.request(pipe, 'nope', {}), e => e.remote === true && /плохая команда/.test(e.message));
+    assert.deepEqual(await ipc.request(pipe, 'echo', { x: 'привет 👋' }), { got: 'привет 👋' });
+    await assert.rejects(ipc.request(pipe, 'nope', {}), e => e.remote === true && /bad command/.test(e.message));
     await assert.rejects(ipc.serve(pipe, async () => 1), e => e.code === 'EADDRINUSE');
   } finally {
     server.close();

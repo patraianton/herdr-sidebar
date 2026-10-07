@@ -51,13 +51,13 @@ const ws = (id, label) => ({ workspace_id: id, label });
 const keyTok = (x, id) => (x.workspaces.find(w => w.workspace_id === id).tokens || {}).key;
 
 test('assigning a key writes a binding to a jump action, reloads herdr and shows the key on the row', async () => {
-  const x = setup({ workspaces: [ws('w1', '[WS] Ads'), ws('w2', 'autopase')] });
+  const x = setup({ workspaces: [ws('w1', '[ACME] Ads'), ws('w2', 'acme-api')] });
   await x.d._test.cycle('t');
   const r = await x.d.handle('hotkey.set', { key: 'Alt+5', wsId: 'w1' });
   assert.equal(r.display, 'Alt+5');
-  assert.equal(r.label, '[WS] Ads');
+  assert.equal(r.label, '[ACME] Ads');
   assert.ok(x.cfg.text.includes('key = "alt+5"\ntype = "plugin_action"\ncommand = "anton.sidebar.jump-1"'));
-  assert.ok(x.cfg.text.includes('description = "прыжок: [WS] Ads"'));
+  assert.ok(x.cfg.text.includes('description = "jump: [ACME] Ads"'));
   assert.ok(x.cfg.text.includes('annotate.capture'), 'other bindings stay');
   assert.ok(x.calls.some(c => c[0] === 'reload'));
   assert.equal(x.cfg.backups, 1);
@@ -72,9 +72,9 @@ test('assigning a key writes a binding to a jump action, reloads herdr and shows
 test('a key taken by another plugin or by herdr is refused and not offered', async () => {
   const x = setup({ workspaces: [ws('w1', 'a')] });
   await x.d._test.cycle('t');
-  await assert.rejects(x.d.handle('hotkey.set', { key: 'f7', wsId: 'w1' }), /F7 уже занята: «annotate text»/);
+  await assert.rejects(x.d.handle('hotkey.set', { key: 'f7', wsId: 'w1' }), /F7 is taken: "annotate text"/);
   await assert.rejects(x.d.handle('hotkey.set', { key: 'prefix+c', wsId: 'w1' }), /herdr: new_tab/);
-  await assert.rejects(x.d.handle('hotkey.set', { key: 'k', wsId: 'w1' }), /не годится/);
+  await assert.rejects(x.d.handle('hotkey.set', { key: 'k', wsId: 'w1' }), /will not do/);
   const m = await x.d.handle('hotkey.menu', { wsId: 'w1' });
   assert.ok(!m.choices.some(c => c.key === 'f7'));
   assert.equal(m.choices.length, 11); // 21 less Alt+1…4, Alt+0 and F1…4 (stars) and F7
@@ -102,7 +102,7 @@ test('moving a key to another project keeps its slot; a new key for the same pro
 
 test('a key can point at one tab of a workspace', async () => {
   const x = setup({
-    workspaces: [ws('w4', 'autopase-cto')],
+    workspaces: [ws('w4', 'acme-cto')],
     tabs: [{ tab_id: 'w4:t1', workspace_id: 'w4', label: 'main' }, { tab_id: 'w4:t2', workspace_id: 'w4', label: 'bots' }],
   });
   await x.d._test.cycle('t');
@@ -112,8 +112,8 @@ test('a key can point at one tab of a workspace', async () => {
   await x.d.handle('hotkey.set', { key: 'f6', wsId: 'w4' });
   const hk = x.d._test.state().hotkeys;
   assert.equal(hk.length, 2, 'the tab and the whole workspace are different targets');
-  assert.deepEqual(hk.find(h => h.key === 'f5').target, { wsId: 'w4', label: 'autopase-cto', path: 'c:/p/w4', tabId: 'w4:t2', tabLabel: 'bots' });
-  assert.ok(x.cfg.text.includes('description = "прыжок: autopase-cto › bots"'));
+  assert.deepEqual(hk.find(h => h.key === 'f5').target, { wsId: 'w4', label: 'acme-cto', path: 'c:/p/w4', tabId: 'w4:t2', tabLabel: 'bots' });
+  assert.ok(x.cfg.text.includes('description = "jump: acme-cto › bots"'));
   assert.equal(keyTok(x, 'w4'), 'F5 F6');
   x.cleanup();
 });
@@ -122,7 +122,7 @@ test('when herdr rejects the new bindings, config.toml and the hotkeys stay as t
   const x = setup({ workspaces: [ws('w1', 'a')], issuesAfter: { when: 'alt+7', line: 'alt+7: kept keys.command[0].key, disabled keys.command[5].key' } });
   await x.d._test.cycle('t');
   const before = x.cfg.text;
-  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+7', wsId: 'w1' }), /herdr не принял клавишу/);
+  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+7', wsId: 'w1' }), /herdr did not accept the key/);
   assert.equal(x.cfg.text, before);
   assert.deepEqual(x.d._test.state().hotkeys, []);
   x.cleanup();
@@ -136,9 +136,9 @@ test('clearing a key removes the binding and the token; without an install nothi
   assert.ok(!x.cfg.text.includes('jump-'));
   assert.deepEqual(x.d._test.state().hotkeys, []);
   assert.equal(keyTok(x, 'w1'), undefined);
-  await assert.rejects(x.d.handle('hotkey.clear', { key: 'alt+5' }), /не назначена/);
+  await assert.rejects(x.d.handle('hotkey.clear', { key: 'alt+5' }), /not bound/);
   x.cfg.installed = false;
-  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+5', wsId: 'w1' }), /не установлен/);
+  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+5', wsId: 'w1' }), /not set up/);
   x.cleanup();
 });
 

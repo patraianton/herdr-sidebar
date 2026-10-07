@@ -7,9 +7,9 @@ const W = (id, label, focused = false) => ({ workspace_id: id, label, focused })
 const star = (wsId, label, kind, path) => ({ kind, target: { wsId, label, path } });
 const paths = { w1: 'C:/p/1', w2: 'C:/p/2', w3: 'C:/p/3', w4: 'C:/p/4', w5: 'C:/p/5' };
 
-test('four kinds: my project and three jobs, Alt+1…Alt+4, each its own colour', () => {
+test('four kinds, Alt+1…Alt+4, each its own colour and a default name', () => {
   assert.deepEqual(stars.KINDS.map(k => k.kind), [1, 2, 3, 4]);
-  assert.deepEqual(stars.KINDS.map(k => k.name), ['Мой проект', 'Первая работа', 'Вторая работа', 'Третья работа']);
+  assert.deepEqual(stars.KINDS.map(k => k.name), ['Main', 'Second', 'Third', 'Fourth']);
   assert.equal(new Set(stars.KINDS.map(k => k.color)).size, 4);
   assert.equal(stars.token(2), '★2');
 });
@@ -63,7 +63,7 @@ test('review 2: closing a starred china-cars does not star the other china-cars'
 });
 
 test('the notice after Alt+0 says what happened and how to undo it', () => {
-  assert.equal(stars.resetNote({ cleared: 8 }), 'Сняты все звёздочки (8). Вернуть их: Alt+0 ещё раз.');
-  assert.equal(stars.resetNote({ restored: 3 }), 'Звёздочки вернулись (3).');
-  assert.equal(stars.resetNote({}), 'Звёздочек нет.');
+  assert.equal(stars.resetNote({ cleared: 8 }), 'All stars taken off (8). Bring them back: Alt+0 again.');
+  assert.equal(stars.resetNote({ restored: 3 }), 'Stars are back (3).');
+  assert.equal(stars.resetNote({}), 'No stars.');
 });

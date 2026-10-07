@@ -71,8 +71,8 @@ test('usedKeys: other plugins, own [keys], built-in defaults; our block and over
     'command = "x.y"',
   ].join('\n');
   const used = hk.usedKeys(cfg, DEFAULTS, BEGIN, END);
-  assert.equal(used.get('prefix+a'), '«annotate text»');
-  assert.equal(used.get('f7'), 'другая команда herdr');
+  assert.equal(used.get('prefix+a'), '"annotate text"');
+  assert.equal(used.get('f7'), 'another herdr command');
   assert.equal(used.get('ctrl+t'), 'herdr: new_tab');
   assert.ok(!used.has('prefix+c'), 'new_tab default is replaced by ctrl+t');
   assert.ok(used.has('ctrl+alt+h') && used.has('prefix+h'));
@@ -87,11 +87,11 @@ test('usedKeys: other plugins, own [keys], built-in defaults; our block and over
 test('bindingLines: one plugin_action per hotkey, sorted, quotes escaped', () => {
   const lines = hk.bindingLines([
     { slot: 2, key: 'f5', target: { label: 'say "hi"', tabLabel: 'bots' } },
-    { slot: 1, key: 'alt+1', target: { label: '[WS] Ads' } },
+    { slot: 1, key: 'alt+1', target: { label: '[ACME] Ads' } },
   ], 'anton.sidebar');
   assert.deepEqual(lines, [
-    '[[keys.command]]', 'key = "alt+1"', 'type = "plugin_action"', 'command = "anton.sidebar.jump-1"', 'description = "прыжок: [WS] Ads"',
-    '[[keys.command]]', 'key = "f5"', 'type = "plugin_action"', 'command = "anton.sidebar.jump-2"', 'description = "прыжок: say \\"hi\\" › bots"',
+    '[[keys.command]]', 'key = "alt+1"', 'type = "plugin_action"', 'command = "anton.sidebar.jump-1"', 'description = "jump: [ACME] Ads"',
+    '[[keys.command]]', 'key = "f5"', 'type = "plugin_action"', 'command = "anton.sidebar.jump-2"', 'description = "jump: say \\"hi\\" › bots"',
   ]);
 });
 

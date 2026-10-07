@@ -13,15 +13,14 @@ const agent = (over = {}) => ({
   agent_session: { value: 'sess-1' }, ...over,
 });
 const fresh = (over = {}) => duty.newDuty({
-  id: 'd1', wsId: 'w1', label: 'google-ads', paneId: 'w1:p1', terminalId: 't1', agentSession: 'sess-1',
+  id: 'd1', wsId: 'w1', label: 'ads-watch', paneId: 'w1:p1', terminalId: 't1', agentSession: 'sess-1',
   everyMs: 30 * MIN, note: '', source: 'agent', now: T0, ...over,
 });
 
 test('parseEvery', () => {
   assert.equal(duty.parseEvery('30m'), 30 * MIN);
-  assert.equal(duty.parseEvery('30м'), 30 * MIN);
   assert.equal(duty.parseEvery('1h'), 60 * MIN);
-  assert.equal(duty.parseEvery('2ч'), 120 * MIN);
+  assert.equal(duty.parseEvery('2h'), 120 * MIN);
   assert.equal(duty.parseEvery('90'), 90 * MIN);
   assert.equal(duty.parseEvery('1,5h'), 90 * MIN);
   assert.equal(duty.parseEvery('45s'), 45000);
@@ -30,15 +29,15 @@ test('parseEvery', () => {
 });
 
 test('fmtDur', () => {
-  assert.equal(duty.fmtDur(25 * MIN + 59000), '25м');
-  assert.equal(duty.fmtDur(60 * MIN), '1ч');
-  assert.equal(duty.fmtDur(90 * MIN), '1ч30м');
-  assert.equal(duty.fmtDur(50 * 60 * MIN), '2д');
+  assert.equal(duty.fmtDur(25 * MIN + 59000), '25m');
+  assert.equal(duty.fmtDur(60 * MIN), '1h');
+  assert.equal(duty.fmtDur(90 * MIN), '1h30m');
+  assert.equal(duty.fmtDur(50 * 60 * MIN), '2d');
 });
 
 test('ok token while healthy', () => {
-  assert.equal(duty.dutyToken(fresh()), '◆ дежурит · 30м');
-  assert.equal(duty.dutyToken(fresh({ everyMs: 60 * MIN })), '◆ дежурит · 1ч');
+  assert.equal(duty.dutyToken(fresh()), '◆ on duty · 30m');
+  assert.equal(duty.dutyToken(fresh({ everyMs: 60 * MIN })), '◆ on duty · 1h');
 });
 
 test('locateAgent: terminal, then agent session, then pane', () => {
@@ -57,10 +56,10 @@ test('stopped waking up: alert after interval + max(interval/2, 10m), once', () 
   r = duty.evaluate(r.duty, agent(), T0 + 46 * MIN, S, STARTED);
   assert.equal(r.event, 'alert');
   assert.equal(r.duty.alert.kind, 'sleep');
-  assert.equal(duty.dutyToken(r.duty), '▲ не просыпался 46м');
+  assert.equal(duty.dutyToken(r.duty), '▲ no wake-up for 46m');
   r = duty.evaluate(r.duty, agent(), T0 + 75 * MIN, S, STARTED);
   assert.equal(r.event, null, 'no repeat while the alert stands');
-  assert.equal(duty.dutyToken(r.duty), '▲ не просыпался 1ч15м');
+  assert.equal(duty.dutyToken(r.duty), '▲ no wake-up for 1h15m');
 });
 
 test('a short wake-up between checks counts as life (state_change_seq grew)', () => {
@@ -83,7 +82,7 @@ test('recovery after an alert sends one recover event', () => {
   r = duty.evaluate(r.duty, agent({ agent_status: 'working' }), T0 + 51 * MIN, S, STARTED);
   assert.equal(r.event, 'recover');
   assert.equal(r.duty.alert, null);
-  assert.equal(duty.dutyToken(r.duty), '◆ дежурит · 30м');
+  assert.equal(duty.dutyToken(r.duty), '◆ on duty · 30m');
 });
 
 test('stuck on a question: blocked longer than 10 minutes', () => {
@@ -92,7 +91,7 @@ test('stuck on a question: blocked longer than 10 minutes', () => {
   r = duty.evaluate(r.duty, agent({ agent_status: 'blocked', state_change_seq: 11 }), T0 + 12 * MIN, S, STARTED);
   assert.equal(r.event, 'alert');
   assert.equal(r.duty.alert.kind, 'blocked');
-  assert.equal(duty.dutyToken(r.duty), '▲ ждёт ответа 11м');
+  assert.equal(duty.dutyToken(r.duty), '▲ waiting for input 11m');
 });
 
 test('agent window gone for 3 minutes', () => {
@@ -100,17 +99,17 @@ test('agent window gone for 3 minutes', () => {
   assert.equal(r.event, null);
   r = duty.evaluate(r.duty, null, T0 + 4 * MIN, S, STARTED);
   assert.equal(r.event, 'alert');
-  assert.equal(duty.dutyToken(r.duty), '▲ окно агента пропало');
+  assert.equal(duty.dutyToken(r.duty), '▲ agent pane is gone');
   r = duty.evaluate(r.duty, agent({ terminal_id: 't7' }), T0 + 5 * MIN, S, STARTED);
   assert.equal(r.event, 'recover', 'found again by agent session after a restart');
   assert.equal(r.duty.terminalId, 't7');
 });
 
 test('agent reported trouble: immediate, cleared only by ok or reset', () => {
-  let d = duty.applyFail(fresh(), T0 + 1 * MIN, 'кабинет Google Ads не открывается');
+  let d = duty.applyFail(fresh(), T0 + 1 * MIN, 'Google Ads console does not open');
   let r = duty.evaluate(d, agent({ agent_status: 'working' }), T0 + 1 * MIN, S, STARTED);
   assert.equal(r.event, 'alert');
-  assert.equal(duty.dutyToken(r.duty), '▲ кабинет Google Ads не открывается');
+  assert.equal(duty.dutyToken(r.duty), '▲ Google Ads console does not open');
   r = duty.evaluate(r.duty, agent({ agent_status: 'working' }), T0 + 2 * MIN, S, STARTED);
   assert.equal(r.event, null);
   d = duty.applyOk(r.duty, T0 + 3 * MIN);
@@ -124,7 +123,7 @@ test('agent reported trouble: immediate, cleared only by ok or reset', () => {
 test('fail reason is shortened to fit a token', () => {
   const d = duty.applyFail(fresh(), T0, 'x'.repeat(200));
   assert.ok(d.fail.reason.length <= 70);
-  assert.equal(duty.applyFail(fresh(), T0, '   ').fail.reason, 'агент сообщил о беде');
+  assert.equal(duty.applyFail(fresh(), T0, '   ').fail.reason, 'the agent reported a problem');
 });
 
 test('grace after the helper starts: no new alert, no false recovery', () => {
@@ -143,7 +142,7 @@ test('grace after the helper starts: no new alert, no false recovery', () => {
 });
 
 test('fail alerts even in grace', () => {
-  const d = duty.applyFail(fresh(), T0, 'беда');
+  const d = duty.applyFail(fresh(), T0, 'trouble');
   assert.equal(duty.evaluate(d, agent(), T0 + MIN, S, T0).event, 'alert');
 });
 
@@ -158,9 +157,9 @@ test('alert kind change during one incident does not notify again', () => {
 });
 
 test('messages', () => {
-  const d = { ...fresh(), alert: { kind: 'sleep', text: 'не просыпался 75м', since: T0 } };
-  assert.equal(duty.alertText('google-ads', d), '🔴 Дежурство: google-ads — не просыпался 75м');
-  assert.equal(duty.recoverText('google-ads'), '🟢 Дежурство: google-ads — снова работает');
+  const d = { ...fresh(), alert: { kind: 'sleep', text: 'no wake-up for 75m', since: T0 } };
+  assert.equal(duty.alertText('ads-watch', d), '🔴 Duty: ads-watch — no wake-up for 75m');
+  assert.equal(duty.recoverText('ads-watch'), '🟢 Duty: ads-watch — working again');
 });
 
 test('after a restart a new terminal with a lower seq is not a wake-up; a sleep alert waits for real activity', () => {
@@ -183,17 +182,17 @@ test('an agent back after a long absence with a new terminal is not reported as 
   assert.equal(r.event, 'alert');
   r = duty.evaluate(r.duty, agent({ terminal_id: 't9' }), T0 + 200 * MIN, S, STARTED);
   assert.equal(r.event, 'recover');
-  assert.equal(duty.dutyToken(r.duty), '◆ дежурит · 30м');
+  assert.equal(duty.dutyToken(r.duty), '◆ on duty · 30m');
 });
 
 test('ok clears an agent-reported alert at once, even right after the helper started', () => {
-  let d = duty.applyFail(fresh(), T0 + MIN, 'беда');
+  let d = duty.applyFail(fresh(), T0 + MIN, 'trouble');
   let r = duty.evaluate(d, agent(), T0 + MIN, S, T0);
   assert.equal(r.event, 'alert');
   d = duty.applyOk(r.duty, T0 + 2 * MIN);
   r = duty.evaluate(d, agent(), T0 + 2 * MIN, S, T0);
   assert.equal(r.event, 'recover');
-  assert.equal(duty.dutyToken(r.duty), '◆ дежурит · 30м');
+  assert.equal(duty.dutyToken(r.duty), '◆ on duty · 30m');
 });
 
 test('a window that comes back during the grace period is reported as recovered', () => {

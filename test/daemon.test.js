@@ -81,7 +81,7 @@ test('one failing step still publishes tokens and saves the state', async () => 
     workspaces: [plain('w1', 'cookie'), plain('w2', 'other')],
     panes: [pane('w1', 'C:/wt/cookie'), pane('w2', 'C:/p/other')],
     state: {
-      detached: { w1: { name: 'cookie', checkout: 'C:/wt/cookie', parentLabel: 'autopase' } },
+      detached: { w1: { name: 'cookie', checkout: 'C:/wt/cookie', parentLabel: 'acme-api' } },
       duty: { d1: { id: 'd1', wsId: 'w2', label: 'other', everyMs: 30 * MIN, lastLifeAt: 0, lastSeq: null, blockedSince: null, missingSince: null, fail: null, alert: null } },
     },
   });
@@ -89,7 +89,7 @@ test('one failing step still publishes tokens and saves the state', async () => 
   x.herdr.failAgents = true;
   x.d._test.markConnected();
   await x.d._test.cycle('test');
-  assert.ok(x.herdr.calls.some(c => c[0] === 'tokens' && c[1] === 'w1' && c[2].project === '⎇ autopase'), 'project token published');
+  assert.ok(x.herdr.calls.some(c => c[0] === 'tokens' && c[1] === 'w1' && c[2].project === '⎇ acme-api'), 'project token published');
   assert.ok(fs.existsSync(path.join(x.dir, 'state.json')), 'state saved');
   x.cleanup();
 });
@@ -98,7 +98,7 @@ test('after a gap, a detached record on a reused id is dropped and gets no token
   const x = setup({
     workspaces: [plain('w1', 'fix-pc')],
     panes: [pane('w1', 'C:/p/fix-pc')],
-    state: { detached: { w1: { name: 'cookie', checkout: 'C:/wt/cookie', parentLabel: 'autopase' } } },
+    state: { detached: { w1: { name: 'cookie', checkout: 'C:/wt/cookie', parentLabel: 'acme-api' } } },
   });
   x.d._test.markConnected();
   await x.d._test.cycle('first');
@@ -112,11 +112,11 @@ test('a duty keeps the label of its own agent when the workspace id is reused', 
     workspaces: [plain('w5', 'stranger')],
     panes: [pane('w5', 'C:/p/stranger')],
     agents: [],
-    state: { duty: { d1: { id: 'd1', wsId: 'w5', label: 'google-ads', paneId: 'w5:p1', terminalId: 't-old', agentSession: 's1', everyMs: 30 * MIN, lastLifeAt: 0, lastSeq: null, blockedSince: null, missingSince: null, fail: null, alert: null } } },
+    state: { duty: { d1: { id: 'd1', wsId: 'w5', label: 'ads-watch', paneId: 'w5:p1', terminalId: 't-old', agentSession: 's1', everyMs: 30 * MIN, lastLifeAt: 0, lastSeq: null, blockedSince: null, missingSince: null, fail: null, alert: null } } },
   });
   x.d._test.markConnected();
   await x.d._test.cycle('t');
-  assert.equal(x.d._test.state().duty.d1.label, 'google-ads');
+  assert.equal(x.d._test.state().duty.d1.label, 'ads-watch');
   x.cleanup();
 });
 
@@ -164,24 +164,24 @@ test('category titles are drawn as tokens on the first projects; no title worksp
   const x = setup({
     workspaces: [plain('w1', 'a'), plain('w2', 'b'), plain('w3', 'c')],
     panes: [pane('w1', 'C:/p/a'), pane('w2', 'C:/p/b'), pane('w3', 'C:/p/c')],
-    state: { categories: [{ id: 'c1', name: 'Реклама', units: ['ws:w2'] }] },
+    state: { categories: [{ id: 'c1', name: 'Ads', units: ['ws:w2'] }] },
   });
   x.d._test.markConnected();
   await x.d._test.cycle('t');
   assert.ok(!x.herdr.calls.some(c => c[0] === 'create'), 'no workspace created');
   assert.deepEqual(x.herdr.calls.find(c => c[0] === 'move'), ['move', 'w2,w1,w3']);
   const tok = id => (x.herdr.listWorkspacesSync(id).tokens || {}).section;
-  assert.equal(tok('w2'), '━━ РЕКЛАМА ━━');
-  assert.equal(tok('w1'), '━━ БЕЗ КАТЕГОРИИ ━━');
+  assert.equal(tok('w2'), '━━ ADS ━━');
+  assert.equal(tok('w1'), '━━ NO CATEGORY ━━');
   assert.equal(tok('w3'), undefined);
   x.cleanup();
 });
 
 test('title workspaces left by the previous version are closed, foreign look-alikes are not', async () => {
   const x = setup({
-    workspaces: [plain('h1', '━━ РЕКЛАМА ━━'), plain('w1', 'a'), plain('f1', '━━ ЧУЖОЕ ━━')],
+    workspaces: [plain('h1', '━━ ADS ━━'), plain('w1', 'a'), plain('f1', '━━ SOMEONE ELSE ━━')],
     panes: [],
-    state: { headers: { c1: 'h1' }, categories: [{ id: 'c1', name: 'Реклама', units: ['ws:w1'] }] },
+    state: { headers: { c1: 'h1' }, categories: [{ id: 'c1', name: 'Ads', units: ['ws:w1'] }] },
   });
   x.herdr.panesRef.push(pane('h1', path.join(x.dir, 'header')), pane('w1', 'C:/p/a'), pane('f1', 'C:/p/other'));
   x.d._test.markConnected();

@@ -93,6 +93,7 @@ function parseInput(s) {
   return ev;
 }
 
+// Keys typed with the Russian (ЙЦУКЕН) layout switched on count as the same keys.
 const RU = 'йцукенгшщзфывапролдячсмить';
 const EN = 'qwertyuiopasdfghjklzxcvbnm';
 function latin(ch) {

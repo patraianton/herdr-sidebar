@@ -8,14 +8,14 @@ const ws = (id, label, worktree) => ({ workspace_id: id, label, worktree });
 const wt = (repo, linked, checkout) => ({
   repo_key: `C:\\p\\${repo}\\.git`, repo_root: `C:\\p\\${repo}`, is_linked_worktree: linked, checkout_path: checkout,
 });
-const AP = 'repo:c:/p/autopase/.git';
+const AP = 'repo:c:/p/acme-api/.git';
 
 function world() {
   return [
     ws('w1', 'fix-pc'),
-    ws('w2', 'autopase', wt('autopase', false, 'C:\\p\\autopase')),
+    ws('w2', 'acme-api', wt('acme-api', false, 'C:\\p\\acme-api')),
     ws('w3', 'blog'),
-    ws('w4', 'cookie', wt('autopase', true, 'C:\\wt\\cookie')),
+    ws('w4', 'cookie', wt('acme-api', true, 'C:\\wt\\cookie')),
     ws('w5', 'lonely', wt('lonely', true, 'C:\\wt\\lonely')),
   ];
 }
@@ -27,19 +27,19 @@ function withHeaders(list, headers) {
 }
 
 test('header labels', () => {
-  assert.equal(model.headerLabel(' Реклама 24/7 '), '━━ РЕКЛАМА 24/7 ━━');
-  assert.ok(model.isHeaderLabel('━━ РЕКЛАМА ━━'));
+  assert.equal(model.headerLabel(' Ads 24/7 '), '━━ ADS 24/7 ━━');
+  assert.ok(model.isHeaderLabel('━━ ADS ━━'));
   assert.ok(model.isHeaderLabel(model.NONE_LABEL));
   assert.ok(!model.isHeaderLabel('━━ broken'));
-  assert.ok(!model.isHeaderLabel('autopase'));
+  assert.ok(!model.isHeaderLabel('acme-api'));
 });
 
 test('buildUnits groups a repo with a parent and draws it at the first member', () => {
   const u = model.buildUnits(world(), PATHS, new Set());
   assert.deepEqual(u.units.map(x => x.key), ['ws:w1', AP, 'ws:w3', 'ws:w5']);
   assert.deepEqual(u.byKey[AP].wsIds, ['w2', 'w4']);
-  assert.equal(u.byKey[AP].label, 'autopase');
-  assert.equal(u.byKey[AP].path, 'c:/p/autopase');
+  assert.equal(u.byKey[AP].label, 'acme-api');
+  assert.equal(u.byKey[AP].path, 'c:/p/acme-api');
   assert.deepEqual(u.byKey[AP].children.map(c => c.wsId), ['w4']);
   assert.equal(u.unitOf.w4, AP);
   assert.equal(u.byKey['ws:w5'].linked, true);
@@ -48,7 +48,7 @@ test('buildUnits groups a repo with a parent and draws it at the first member', 
 });
 
 test('buildUnits: child listed before its parent still forms one group led by the parent', () => {
-  const list = [ws('w4', 'cookie', wt('autopase', true, 'C:\\wt\\cookie')), ws('w2', 'autopase', wt('autopase', false, 'C:\\p\\autopase'))];
+  const list = [ws('w4', 'cookie', wt('acme-api', true, 'C:\\wt\\cookie')), ws('w2', 'acme-api', wt('acme-api', false, 'C:\\p\\acme-api'))];
   const u = model.buildUnits(list, {}, new Set());
   assert.deepEqual(u.units.map(x => x.key), [AP]);
   assert.deepEqual(u.byKey[AP].wsIds, ['w2', 'w4']);
@@ -77,26 +77,26 @@ test('desiredOrder: category members in order, then the rest in live order', () 
 
 test('sectionTokens: the first project of each category and of the rest carries the title', () => {
   const s = emptyState();
-  s.categories = [{ id: 'c1', name: 'Реклама', units: ['ws:w3', 'ws:w1'] }, { id: 'c2', name: 'Пусто', units: [] }, { id: 'c3', name: 'Код', units: [AP] }];
+  s.categories = [{ id: 'c1', name: 'Ads', units: ['ws:w3', 'ws:w1'] }, { id: 'c2', name: 'Empty', units: [] }, { id: 'c3', name: 'Code', units: [AP] }];
   const u = model.buildUnits(world(), PATHS, new Set());
   assert.deepEqual(model.sectionTokens(s, u, ['w3', 'w1', 'w2', 'w4', 'w5']), {
-    w3: '━━ РЕКЛАМА ━━', w2: '━━ КОД ━━', w5: model.NONE_LABEL,
+    w3: '━━ ADS ━━', w2: '━━ CODE ━━', w5: model.NONE_LABEL,
   });
 });
 
 test('sectionTokens: a group carries the title on its parent even when a child comes first', () => {
   const s = emptyState();
-  s.categories = [{ id: 'c1', name: 'Код', units: [AP] }];
+  s.categories = [{ id: 'c1', name: 'Code', units: [AP] }];
   const u = model.buildUnits(world(), PATHS, new Set());
-  assert.equal(model.sectionTokens(s, u, ['w4', 'w2', 'w1', 'w3', 'w5']).w2, '━━ КОД ━━');
+  assert.equal(model.sectionTokens(s, u, ['w4', 'w2', 'w1', 'w3', 'w5']).w2, '━━ CODE ━━');
 });
 
 test('sectionTokens: no categories, no titles; nothing left over, no "none" title', () => {
   const u = model.buildUnits(world(), PATHS, new Set());
   assert.deepEqual(model.sectionTokens(emptyState(), u, ['w1', 'w2', 'w3', 'w4', 'w5']), {});
   const s = emptyState();
-  s.categories = [{ id: 'c1', name: 'Все', units: ['ws:w1', AP, 'ws:w3', 'ws:w5'] }];
-  assert.deepEqual(model.sectionTokens(s, u, ['w1', 'w2', 'w4', 'w3', 'w5']), { w1: '━━ ВСЕ ━━' });
+  s.categories = [{ id: 'c1', name: 'All', units: ['ws:w1', AP, 'ws:w3', 'ws:w5'] }];
+  assert.deepEqual(model.sectionTokens(s, u, ['w1', 'w2', 'w4', 'w3', 'w5']), { w1: '━━ ALL ━━' });
 });
 
 test('reconcile re-binds a closed and reopened workspace by folder', () => {
@@ -139,7 +139,7 @@ test('reconcile: a group takes the slot of its member that was placed alone', ()
 test('reconcile: a dissolved group is replaced by its remaining members', () => {
   const s = emptyState();
   s.categories = [{ id: 'c1', name: 'A', units: [AP] }];
-  const list = [ws('w4', 'cookie', wt('autopase', true, 'C:\\wt\\cookie')), ws('w1', 'fix-pc')];
+  const list = [ws('w4', 'cookie', wt('acme-api', true, 'C:\\wt\\cookie')), ws('w1', 'fix-pc')];
   const r = model.reconcile(s, model.buildUnits(list, PATHS, new Set()), 5);
   assert.deepEqual(r.categories[0].units, ['ws:w4']);
 });
@@ -154,7 +154,7 @@ test('reconcile keeps a dead key for a while and prunes it after 30 days', () =>
 });
 
 // ---- learning from native drags ----
-// X: [w1, w6]   Y: [w3]   the rest: autopase group (w2 + w4), w5.
+// X: [w1, w6]   Y: [w3]   the rest: acme-api group (w2 + w4), w5.
 // The sidebar shows "━━ X ━━" on w1, "━━ Y ━━" on w3 and the "none" title on w2.
 
 const LPATHS = { ...PATHS, w6: 'C:\p\notes' };
@@ -163,7 +163,7 @@ function setup() {
   s.categories = [{ id: 'cX', name: 'X', units: ['ws:w1', 'ws:w6'] }, { id: 'cY', name: 'Y', units: ['ws:w3'] }];
   const list = [
     ws('w1', 'fix-pc'), ws('w6', 'notes'), ws('w3', 'blog'),
-    ws('w2', 'autopase', wt('autopase', false, 'C:\p\autopase')), ws('w4', 'cookie', wt('autopase', true, 'C:\wt\cookie')),
+    ws('w2', 'acme-api', wt('acme-api', false, 'C:\p\acme-api')), ws('w4', 'cookie', wt('acme-api', true, 'C:\wt\cookie')),
     ws('w5', 'lonely', wt('lonely', true, 'C:\wt\lonely')),
   ];
   s.lastApplied = list.map(w => w.workspace_id);

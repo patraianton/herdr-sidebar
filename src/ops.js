@@ -34,18 +34,18 @@ const movedTo = (res, wsId) => !!res && res.changed !== false && !!res.pane && r
 async function detach(herdr, state, { wsId, catId }) {
   const workspaces = await herdr.listWorkspaces();
   const ws = workspaces.find(w => w.workspace_id === wsId);
-  if (!ws) throw new Error('Такого рабочего места уже нет.');
-  if (!ws.worktree || !ws.worktree.is_linked_worktree) throw new Error('Это не копия проекта (worktree), выносить нечего.');
+  if (!ws) throw new Error('This workspace is gone.');
+  if (!ws.worktree || !ws.worktree.is_linked_worktree) throw new Error('This is not a worktree copy of a project, there is nothing to detach.');
   const rk = normPath(ws.worktree.repo_key);
   const parent = workspaces.find(w => w.worktree && normPath(w.worktree.repo_key) === rk && !w.worktree.is_linked_worktree);
   const panes = await panesInTabOrder(herdr, wsId);
-  if (!panes.length) throw new Error('В рабочем месте нет окон.');
+  if (!panes.length) throw new Error('The workspace has no panes.');
   await unzoomTabs(herdr, panes);
 
   const first = await herdr.movePane(panes[0].paneId, { type: 'new_workspace', label: ws.label, tab_label: panes[0].label });
   const newId = first && first.changed !== false && first.created_workspace && first.created_workspace.workspace_id;
   if (!newId || newId === wsId) {
-    throw new Error(`herdr не перенёс окно${first && first.reason ? ` (${first.reason})` : ''}. Ничего не изменилось.`);
+    throw new Error(`herdr did not move the pane${first && first.reason ? ` (${first.reason})` : ''}. Nothing changed.`);
   }
 
   // The new workspace exists from here on: record it before moving the rest.
@@ -53,7 +53,7 @@ async function detach(herdr, state, { wsId, catId }) {
     checkout: cleanPath(ws.worktree.checkout_path),
     repoKey: rk,
     repoRoot: cleanPath(ws.worktree.repo_root),
-    parentLabel: parent ? parent.label : (ws.worktree.repo_name || 'проект'),
+    parentLabel: parent ? parent.label : (ws.worktree.repo_name || 'project'),
     name: ws.label,
     at: Date.now(),
   };
@@ -76,16 +76,16 @@ async function detach(herdr, state, { wsId, catId }) {
     if (!movedTo(res, newId)) stuck.push(p.paneId);
   }
   if (stuck.length) {
-    throw new Error(`Копия вынесена не целиком: окна ${stuck.join(', ')} остались в «${ws.label}» (${wsId}), остальные — в новом месте ${newId}. Ничего не закрыто.`);
+    throw new Error(`Detached only in part: panes ${stuck.join(', ')} stayed in "${ws.label}" (${wsId}), the rest are in the new workspace ${newId}. Nothing was closed.`);
   }
   return { wsId: newId };
 }
 
 async function reattach(herdr, state, { wsId }) {
   const d = state.detached[wsId];
-  if (!d) throw new Error('Это рабочее место не выносилось плагином.');
+  if (!d) throw new Error('This workspace was not detached by the plugin.');
   const workspaces = await herdr.listWorkspaces();
-  if (!workspaces.some(w => w.workspace_id === wsId)) { delete state.detached[wsId]; throw new Error('Вынесенного рабочего места уже нет.'); }
+  if (!workspaces.some(w => w.workspace_id === wsId)) { delete state.detached[wsId]; throw new Error('The detached workspace is gone.'); }
   const parent = workspaces.find(w => w.worktree && normPath(w.worktree.repo_key) === d.repoKey && !w.worktree.is_linked_worktree);
   const where = parent ? { workspace_id: parent.workspace_id } : { cwd: d.repoRoot };
   const res = await herdr.worktreeOpen({ ...where, path: d.checkout, label: d.name });
@@ -102,7 +102,7 @@ async function reattach(herdr, state, { wsId }) {
       if (!movedTo(moved, target)) stuck.push(p.paneId);
     }
     if (stuck.length) {
-      throw new Error(`Вернуть удалось не всё: окна ${stuck.join(', ')} остались в ${wsId}, остальные — в ${target}. Ничего не закрыто.`);
+      throw new Error(`Not everything came back: panes ${stuck.join(', ')} stayed in ${wsId}, the rest are in ${target}. Nothing was closed.`);
     }
     const fresh = res.already_open === false && res.root_pane && res.root_pane.pane_id;
     if (fresh) await herdr.closePane(fresh).catch(() => {});

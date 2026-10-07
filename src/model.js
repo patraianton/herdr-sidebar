@@ -3,7 +3,7 @@
 const { normPath } = require('./paths');
 
 const NONE_ID = '__none';
-const NONE_LABEL = '━━ БЕЗ КАТЕГОРИИ ━━';
+const NONE_LABEL = '━━ NO CATEGORY ━━';
 const HEADER_RE = /^━━ .+ ━━$/;
 const DEAD_MS = 30 * 24 * 3600 * 1000;
 

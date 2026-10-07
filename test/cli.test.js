@@ -6,8 +6,8 @@ const path = require('node:path');
 const cli = require('../src/cli');
 
 test('parseArgs', () => {
-  assert.deepEqual(cli.parseArgs(['start', '--every', '30m', '--note', 'реклама autopase']), { _: ['start'], every: '30m', note: 'реклама autopase' });
-  assert.deepEqual(cli.parseArgs(['fail', 'кабинет', 'не', 'открывается']), { _: ['fail', 'кабинет', 'не', 'открывается'] });
+  assert.deepEqual(cli.parseArgs(['start', '--every', '30m', '--note', 'ads watch']), { _: ['start'], every: '30m', note: 'ads watch' });
+  assert.deepEqual(cli.parseArgs(['fail', 'ads', 'console', 'down']), { _: ['fail', 'ads', 'console', 'down'] });
   assert.deepEqual(cli.parseArgs(['start', '--every=1h']), { _: ['start'], every: '1h' });
 });
 
@@ -16,7 +16,7 @@ test('duty without herdr explains itself', () => {
   delete env.HERDR_SOCKET_PATH;
   const r = spawnSync(process.execPath, [path.join(__dirname, '..', 'src', 'cli.js'), 'duty', 'ok'], { env, encoding: 'utf8' });
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /внутри herdr/);
+  assert.match(r.stderr, /inside herdr/);
 });
 
 test('usage', () => {
@@ -42,7 +42,7 @@ test('uninstall stops before touching the config when the helper cannot restore 
   };
   const r = spawnSync(process.execPath, [path.join(__dirname, '..', 'src', 'cli.js'), 'uninstall'], { env, encoding: 'utf8' });
   assert.equal(r.status, 1, r.stdout + r.stderr);
-  assert.match(r.stderr, /не тронуты/);
+  assert.match(r.stderr, /untouched/);
   assert.equal(fs.readFileSync(cfg, 'utf8'), patched, 'config untouched');
   assert.ok(fs.existsSync(path.join(dir, 'install.json')), 'install record kept');
   fs.rmSync(dir, { recursive: true, force: true });

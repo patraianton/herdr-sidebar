@@ -42,10 +42,10 @@ const starTok = (list, id) => (list.find(w => w.workspace_id === id).tokens || {
 const unitOf = (view, id) => view.categories.flatMap(c => c.units).find(u => u.anchorId === id);
 
 test('a star of a kind is put on, changed and taken off; it shows in the sidebar and in the window', async () => {
-  const list = [ws('w1', '[WS] Ads'), ws('w2', 'autopase')];
+  const list = [ws('w1', '[ACME] Ads'), ws('w2', 'acme-api')];
   const x = setup(list);
   await x.d._test.cycle('t');
-  assert.deepEqual(await x.d.handle('star.set', { wsId: 'w2', kind: 1 }), { kind: 1, label: 'autopase' });
+  assert.deepEqual(await x.d.handle('star.set', { wsId: 'w2', kind: 1 }), { kind: 1, label: 'acme-api' });
   assert.equal(starTok(list, 'w2'), '★1');
   assert.equal(starTok(list, 'w1'), undefined);
   let v = await x.d.handle('view');
@@ -54,7 +54,7 @@ test('a star of a kind is put on, changed and taken off; it shows in the sidebar
   await x.d.handle('star.set', { wsId: 'w2', kind: 3 });
   assert.equal(starTok(list, 'w2'), '★3');
   assert.equal(x.d._test.state().stars.length, 1, 'one star per workspace');
-  assert.deepEqual(await x.d.handle('star.set', { wsId: 'w2', kind: 0 }), { kind: 0, label: 'autopase' });
+  assert.deepEqual(await x.d.handle('star.set', { wsId: 'w2', kind: 0 }), { kind: 0, label: 'acme-api' });
   assert.equal(starTok(list, 'w2'), undefined);
   v = await x.d.handle('view');
   assert.equal(unitOf(v, 'w2').star, 0);
@@ -85,8 +85,8 @@ test('a star follows a rename', async () => {
 test('a workspace that is gone or a kind that does not exist is refused', async () => {
   const x = setup([ws('w1', 'a')]);
   await x.d._test.cycle('t');
-  await assert.rejects(x.d.handle('star.set', { wsId: 'w9', kind: 1 }), /уже нет/);
-  await assert.rejects(x.d.handle('star.set', { wsId: 'w1', kind: 5 }), /вида/);
+  await assert.rejects(x.d.handle('star.set', { wsId: 'w9', kind: 1 }), /is gone/);
+  await assert.rejects(x.d.handle('star.set', { wsId: 'w1', kind: 5 }), /No such star/);
   x.cleanup();
 });
 
@@ -94,7 +94,7 @@ test('Alt+1…Alt+4 are not offered as a hotkey', async () => {
   const x = setup([ws('w1', 'a')]);
   await x.d._test.cycle('t');
   for (const k of ['alt+1', 'alt+4']) {
-    await assert.rejects(x.d.handle('hotkey.set', { key: k, wsId: 'w1' }), /уже занята: звёздочки/);
+    await assert.rejects(x.d.handle('hotkey.set', { key: k, wsId: 'w1' }), /is taken: stars/);
   }
   const menu = await x.d.handle('hotkey.menu', { wsId: 'w1' });
   assert.ok(!menu.choices.some(c => ['alt+1', 'alt+2', 'alt+3', 'alt+4'].includes(c.key)));
@@ -134,15 +134,15 @@ test('F1…F4: the key puts its star on the focused workspace, a second press ta
 test('F1…F4 with nothing focused or a kind that does not exist is refused', async () => {
   const x = setup([ws('w1', 'a')]);
   await x.d._test.cycle('t');
-  await assert.rejects(x.d.handle('star.toggle', { kind: 1 }), /не выбрано/);
-  await assert.rejects(x.d.handle('star.toggle', { kind: 7 }), /вида/);
+  await assert.rejects(x.d.handle('star.toggle', { kind: 1 }), /No workspace is focused/);
+  await assert.rejects(x.d.handle('star.toggle', { kind: 7 }), /No such star/);
   x.cleanup();
 });
 
 test('F1…F4 are not offered as a hotkey', async () => {
   const x = setup([ws('w1', 'a')]);
   await x.d._test.cycle('t');
-  await assert.rejects(x.d.handle('hotkey.set', { key: 'f2', wsId: 'w1' }), /уже занята: звёздочка 2/);
+  await assert.rejects(x.d.handle('hotkey.set', { key: 'f2', wsId: 'w1' }), /is taken: star 2/);
   const menu = await x.d.handle('hotkey.menu', { wsId: 'w1' });
   assert.ok(!menu.choices.some(c => ['f1', 'f2', 'f3', 'f4'].includes(c.key)));
   assert.ok(menu.choices.some(c => c.key === 'f5'));
@@ -196,8 +196,23 @@ test('Alt+0 survives a helper restart: the stars taken off are kept on disk', as
 test('Alt+0 is not offered as a hotkey', async () => {
   const x = setup([ws('w1', 'a')]);
   await x.d._test.cycle('t');
-  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+0', wsId: 'w1' }), /уже занята: звёздочки: снять все/);
+  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+0', wsId: 'w1' }), /is taken: stars: take all off/);
   const menu = await x.d.handle('hotkey.menu', { wsId: 'w1' });
   assert.ok(!menu.choices.some(c => c.key === 'alt+0'));
+  x.cleanup();
+});
+
+test('a kind of star is renamed in settings.json; an empty name brings the default back', async () => {
+  const x = setup([ws('w1', 'a')]);
+  const stars = require('../src/stars');
+  const file = path.join(x.dir, 'config', 'settings.json');
+  store.saveJson(file, { tickSec: 30 });
+  assert.deepEqual(await x.d.handle('star.rename', { kind: 2, name: '  Day job\n' }), { kind: 2, name: 'Day job' });
+  assert.deepEqual(store.loadJson(file, null), { tickSec: 30, starNames: ['', 'Day job', '', ''] }, 'other settings kept');
+  assert.equal(stars.KINDS[1].name, 'Day job');
+  assert.deepEqual((await x.d.handle('view')).starNames, ['Main', 'Day job', 'Third', 'Fourth']);
+  await x.d.handle('star.rename', { kind: 2, name: '' });
+  assert.equal(stars.KINDS[1].name, 'Second');
+  await assert.rejects(x.d.handle('star.rename', { kind: 9, name: 'x' }), /No such star/);
   x.cleanup();
 });

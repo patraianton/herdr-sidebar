@@ -63,7 +63,7 @@ test('a rollback keeps what another agent added meanwhile', async () => {
     },
   });
   await x.d._test.cycle('t');
-  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+5', wsId: 'w1' }), /не принял/);
+  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+5', wsId: 'w1' }), /did not accept/);
   assert.ok(x.cfg.text.includes('yourmove.toggle'), 'foreign block lost by the rollback');
   assert.ok(!x.cfg.text.includes('jump-1'), 'our binding left behind');
   x.cleanup();
@@ -83,10 +83,10 @@ test('an old problem whose binding numbers shifted does not block a new key', as
 });
 
 test('when herdr cannot check the config, nothing is written', async () => {
-  const x = setup({ workspaces: [ws('w1', 'a')], issues: () => { throw new Error('Не смог проверить настройки herdr: spawn herdr ENOENT'); } });
+  const x = setup({ workspaces: [ws('w1', 'a')], issues: () => { throw new Error('Could not check herdr settings: spawn herdr ENOENT'); } });
   await x.d._test.cycle('t');
   const before = x.cfg.text;
-  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+5', wsId: 'w1' }), /Не смог проверить/);
+  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+5', wsId: 'w1' }), /Could not check/);
   assert.equal(x.cfg.text, before);
   x.cleanup();
 });
@@ -96,8 +96,8 @@ test('the real config check refuses to guess when the herdr program is missing',
   process.env.HERDR_BIN_PATH = path.join(os.tmpdir(), 'no-such-herdr.exe');
   try {
     const kc = _defaultKeysConfig(os.tmpdir());
-    assert.throws(() => kc.issues(path.join(os.tmpdir(), 'x.toml')), /Не смог проверить/);
-    assert.throws(() => kc.defaults(), /Не смог/);
+    assert.throws(() => kc.issues(path.join(os.tmpdir(), 'x.toml')), /Could not check/);
+    assert.throws(() => kc.defaults(), /Could not read/);
   } finally {
     if (was === undefined) delete process.env.HERDR_BIN_PATH; else process.env.HERDR_BIN_PATH = was;
   }
@@ -106,7 +106,7 @@ test('the real config check refuses to guess when the herdr program is missing',
 test('the window binding of the plugin itself is not offered as a custom key', async () => {
   const x = setup({ workspaces: [ws('w1', 'a')] });
   await x.d._test.cycle('t');
-  await assert.rejects(x.d.handle('hotkey.set', { key: 'prefix+shift+s', wsId: 'w1' }), /уже занята: окно плагина/);
+  await assert.rejects(x.d.handle('hotkey.set', { key: 'prefix+shift+s', wsId: 'w1' }), /is taken: the Sidebar Organizer window/);
   x.cleanup();
 });
 

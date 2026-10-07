@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 'use strict';
-// End-to-end run against an isolated herdr session. Never touches the default
-// session: every herdr call names the session or its socket explicitly.
+// End-to-end run against an isolated herdr session (Windows). Never touches the
+// default session: every herdr call names the session or its socket explicitly.
+// Scratch folder: SIDEBAR_LAB_DIR, else one in the temp folder.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -14,7 +15,7 @@ const configpatch = require('../../src/configpatch');
 const SESSION = 'sbplug';
 const KEEP = process.argv.includes('--keep');
 const ROOT = path.resolve(__dirname, '..', '..');
-const LAB = path.join(os.homedir(), 'projects', '_conveyor', 'herdr-plugin-dev', 'lab-plug');
+const LAB = process.env.SIDEBAR_LAB_DIR || path.join(os.tmpdir(), 'herdr-sidebar-lab');
 const APPDATA = process.env.APPDATA;
 const SOCK = path.join(APPDATA, 'herdr', 'sessions', SESSION, 'herdr.sock');
 const DEFAULT_SOCK = path.join(APPDATA, 'herdr', 'herdr.sock');
@@ -142,8 +143,8 @@ async function main() {
   // the first uncategorised row may be a foreign workspace such as «Board»
   const firstAfter = async label => { const l = (await list()).map(w => w.label); return l[l.indexOf(label) + 1]; };
   await step('two categories add no workspaces of their own', async () => {
-    await helper('category.create', { name: 'Реклама' });
-    await helper('category.create', { name: 'Личное' });
+    await helper('category.create', { name: 'Ads' });
+    await helper('category.create', { name: 'Personal' });
     const v = await helper('view');
     catR = v.categories[0].id;
     catL = v.categories[1].id;
@@ -163,8 +164,8 @@ async function main() {
     await helper('unit.move', { key: await repoKey(), catId: catL, index: 0 });
     const want = ['plain1', 'repoA', 'wt1', 'wt2', 'plain2'];
     await waitFor(`order ${want.join(', ')}`, async () => (await labelsInOrder()).join('|') === want.join('|'));
-    await waitFor('titles', async () => await sectionOf('plain1') === '━━ РЕКЛАМА ━━'
-      && await sectionOf('repoA') === '━━ ЛИЧНОЕ ━━' && await sectionOf(await firstAfter('wt2')) === '━━ БЕЗ КАТЕГОРИИ ━━'
+    await waitFor('titles', async () => await sectionOf('plain1') === '━━ ADS ━━'
+      && await sectionOf('repoA') === '━━ PERSONAL ━━' && await sectionOf(await firstAfter('wt2')) === '━━ NO CATEGORY ━━'
       && await sectionOf('wt1') === '' && await sectionOf('wt2') === '');
   });
 
@@ -177,19 +178,19 @@ async function main() {
     });
     const l = await labelsInOrder();
     assert(l.slice(0, 2).join('|') === 'plain2|plain1', `order ${l.join(', ')}`);
-    await waitFor('title moved', async () => await sectionOf('plain2') === '━━ РЕКЛАМА ━━' && await sectionOf('plain1') === '');
+    await waitFor('title moved', async () => await sectionOf('plain2') === '━━ ADS ━━' && await sectionOf('plain1') === '');
   });
 
   await step('a title workspace left by the previous version is closed', async () => {
     const dir = path.join(SESSION_DIR, 'header');
     fs.mkdirSync(dir, { recursive: true });
-    h('workspace', 'create', '--cwd', dir, '--label', '━━ СТАРОЕ ━━', '--no-focus');
-    await waitFor('closed', async () => !(await labelsInOrder()).includes('━━ СТАРОЕ ━━'));
+    h('workspace', 'create', '--cwd', dir, '--label', '━━ OLD ━━', '--no-focus');
+    await waitFor('closed', async () => !(await labelsInOrder()).includes('━━ OLD ━━'));
   });
 
   await step('renaming a category renames its title', async () => {
-    await helper('category.rename', { id: catL, name: 'Своё' });
-    await waitFor('renamed', async () => await sectionOf('repoA') === '━━ СВОЁ ━━');
+    await helper('category.rename', { id: catL, name: 'Mine' });
+    await waitFor('renamed', async () => await sectionOf('repoA') === '━━ MINE ━━');
   });
 
   let wt1New;
@@ -213,7 +214,7 @@ async function main() {
     await sleep(1500);
     assert(read() > a, 'ticker stopped');
     const v = await helper('view');
-    assert(v.categories[0].units.some(u => u.anchorId === wt1New), 'not placed in Реклама');
+    assert(v.categories[0].units.some(u => u.anchorId === wt1New), 'not placed in Ads');
   });
 
   await step('reattach puts it back into its project with the same process', async () => {
@@ -256,21 +257,21 @@ async function main() {
     report('working');
     await waitFor('agent visible', async () => (await api('agent.list')).agents.some(a => a.pane_id === pane.pane_id));
     await helper('duty.start', { paneId: pane.pane_id, every: '0.1m', source: 'agent' });
-    await until(/^◆ дежурит/);
-    await helper('duty.fail', { paneId: pane.pane_id, reason: 'тест беды' });
-    await until(/^▲ тест беды$/);
+    await until(/^◆ on duty/);
+    await helper('duty.fail', { paneId: pane.pane_id, reason: 'test trouble' });
+    await until(/^▲ test trouble$/);
     await helper('duty.ok', { paneId: pane.pane_id });
     await until(/^◆/);
     report('blocked');
-    await until(/^▲ ждёт ответа/);
+    await until(/^▲ waiting for input/);
     report('working');
     await until(/^◆/);
     report('idle');
-    await until(/^▲ не просыпался/, 40000);
+    await until(/^▲ no wake-up for/, 40000);
     report('working');
     await until(/^◆/);
     h('pane', 'release-agent', pane.pane_id, '--source', 'lab', '--agent', 'claude');
-    await until(/^▲ окно агента пропало$/, 40000);
+    await until(/^▲ agent pane is gone$/, 40000);
     await helper('duty.stop', { paneId: pane.pane_id }).catch(async () => helper('duty.stop', { wsId: w.workspace_id }));
     await until(/^$/);
   });
@@ -404,19 +405,19 @@ async function main() {
     const pane = (await api('pane.list', { workspace_id: w.workspace_id })).panes[0];
     h('pane', 'run', pane.pane_id, `node "${path.join(ROOT, 'src', 'ui.js')}"`);
     const screen = () => h('pane', 'read', pane.pane_id, '--source', 'visible', '--lines', '60');
-    await waitFor('window drawn', async () => /Категории и дежурства/.test(screen()) && /РЕКЛАМА/.test(screen()), 20000);
+    await waitFor('window drawn', async () => /Sidebar Organizer/.test(screen()) && /ADS/.test(screen()), 20000);
     await waitFor('key on its row', async () => /plain1.*Alt\+5/.test(screen()), 10000)
       .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
     assert(/★2\s+plain2/.test(screen()) && /★1\s+plain1/.test(screen()), `stars in the window:\n${screen()}`);
     h('pane', 'send-keys', pane.pane_id, '?');
-    await waitFor('help', async () => /Помощь/.test(screen()), 10000);
+    await waitFor('help', async () => /Help/.test(screen()), 10000);
     h('pane', 'send-keys', pane.pane_id, 'esc');
     h('pane', 'send-keys', pane.pane_id, 'down');
     h('pane', 'send-keys', pane.pane_id, 'k');
-    await waitFor('hotkey menu', async () => /Клавиша для|куда прыгать/.test(screen()), 10000);
+    await waitFor('hotkey menu', async () => /Key for|where should the key jump/.test(screen()), 10000);
     h('pane', 'send-keys', pane.pane_id, 'esc');
     h('pane', 'send-keys', pane.pane_id, 'q');
-    await waitFor('closed', async () => !/Категории и дежурства/.test(screen()), 10000);
+    await waitFor('closed', async () => !/Sidebar Organizer/.test(screen()), 10000);
   });
 
   await step('uninstall restores the original order and clears everything', async () => {
