@@ -30,6 +30,8 @@ const HELP = [
   't — duty: start, change the interval, end',
   'k — hotkey: jump to a project (or one of its tabs) with one key',
   's — star: four kinds, each with its own colour; rename the kinds there too',
+  '    a kind can stand at the top of the sidebar: s, then "Stars at the top of the sidebar"',
+  '    (here such projects stay in their categories; a worktree copy is detached for it by itself)',
   'F1…F4 (window closed) — star 1…4 on the open project, again — off',
   'Alt+1…Alt+4 (window closed) — round the projects with that star',
   'Alt+0 (window closed) — take every star off; again — bring them back',
@@ -382,6 +384,17 @@ function renameStars() {
   })));
 }
 
+// Which kinds stand in a block of their own at the top of the sidebar.
+function topMenu() {
+  const on = (S.view && S.view.starsOnTop) || [];
+  menu('Which stars stand at the top of the sidebar?', stars.KINDS.map(k => ({
+    label: `★${k.kind} ${starName(k.kind)} — ${on.includes(k.kind) ? 'at the top (Enter: back into the categories)' : 'in the categories (Enter: to the top)'}`,
+    run: () => act(() => call('star.top', { kind: k.kind }), res => (res.on
+      ? `★${res.kind} "${res.name}" now stands at the top of the sidebar`
+      : `★${res.kind} "${res.name}" is back in the categories`)),
+  })));
+}
+
 // s: pick the kind of star (the digit picks it straight away), take it off, or rename the kinds.
 function starMenu(r) {
   if (!r || r.type === 'cat') return setMsg('Select a project.', true);
@@ -395,6 +408,7 @@ function starMenu(r) {
   }));
   if (item.star) items.push({ label: 'Take the star off', run: () => set(0) });
   items.push({ label: 'Take every star off every project — Alt+0', run: () => act(() => call('star.reset', {}), stars.resetNote) });
+  items.push({ label: 'Stars at the top of the sidebar…', run: () => topMenu() });
   items.push({ label: 'Rename the kinds of stars…', run: () => renameStars() });
   return menu(`Star for "${item.label}"`, items, item.star ? item.star - 1 : 0);
 }

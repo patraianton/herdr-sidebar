@@ -10,7 +10,8 @@ gives you a few fast ways to get where you need to be:
 - **Categories** — group workspaces under titled sections (`━━ CLIENT WORK ━━`). Drag a project in
   the herdr sidebar and it joins the category it was dropped into.
 - **Colour stars** — four kinds of stars (say: your own project and three jobs). `F1`…`F4` puts a
-  star on the open project, `Alt+1`…`Alt+4` cycles through the projects with that star.
+  star on the open project, `Alt+1`…`Alt+4` cycles through the projects with that star. A kind can
+  stand at the top of the sidebar in one block, so its projects are next to each other.
 - **Jump hotkeys** — bind `Alt+5`, `F7` or any free combination to a project, or to one tab inside it.
   Hotkeys survive renames and herdr restarts.
 - **Worktree detach** — pull a git worktree out of its project's group into a category of its own,
@@ -97,6 +98,23 @@ Workspaces you never put into a category stay at the bottom, under `NO CATEGORY`
 - The kinds are called Main, Second, Third and Fourth until you name them: in the window press `s`,
   then **Rename the kinds of stars…**.
 
+### Stars at the top
+
+In the window press `s`, then **Stars at the top of the sidebar…**, and pick a kind. Every project
+with a star of that kind leaves its category in the sidebar and stands in a block at the very top,
+under its own title (`━━ ★ MY PROJECT ━━`); each kind turned on gets a block of its own. Take the
+star off and the project goes back to its place in its category. In the window it stays in its
+category all along, so that is where it returns.
+
+herdr draws the worktree copies of a project inside the project, and a copy cannot leave that group
+by itself. So:
+
+- a project with the star goes up together with all its copies;
+- a copy with the star whose project does not go to the same block is detached for it (as with `w`:
+  the panes and agents in it keep running) and stands in the block on its own, marked `⎇ <project>`;
+  take the star off and it is put back into its project. While its star keeps it up there, `w` will
+  not put it back. Copies you detached yourself are never touched.
+
 ## Jump hotkeys
 
 Select a project, press `k` and pick a key. The window only offers keys that are free — not taken
@@ -160,6 +178,7 @@ another `.env`, point at it with `telegram.json` in the same folder:
 ```json
 {
   "starNames": ["My project", "Job 1", "Job 2", "Job 3"],
+  "starsOnTop": [1],
   "tickSec": 30,
   "blockedMin": 10,
   "missingMin": 3,
@@ -168,7 +187,8 @@ another `.env`, point at it with `telegram.json` in the same folder:
 }
 ```
 
-`starNames` is easiest to set from the window (`s` → **Rename the kinds of stars…**). The duty
+`starNames` and `starsOnTop` are easiest to set from the window (`s` → **Rename the kinds of
+stars…** and **Stars at the top of the sidebar…**). The duty
 thresholds are read when the helper starts — run the `setup` action again to restart it.
 
 ## How it works

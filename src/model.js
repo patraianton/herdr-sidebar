@@ -172,6 +172,44 @@ function categoryOf(state, key) {
   return c ? c.id : null;
 }
 
+// Stars on top: a project whose star kind is in onTop leaves its category in
+// the sidebar and stands in one block per kind above every category (the
+// category stays its home in the window). A worktree group counts by the star
+// of its main project. Inside a block the order is that of the categories,
+// then the uncategorized ones in herdr's order. kindOf: workspace id -> kind;
+// nameOf: kind -> block name. Returns { cats, pinned: Set of unit keys }.
+function starBlocks(state, units, kindOf, onTop, nameOf) {
+  const cats = [];
+  const pinned = new Set();
+  const kinds = [...new Set(onTop || [])].sort((a, b) => a - b);
+  if (!kinds.length) return { cats, pinned };
+  const seq = [];
+  const seen = new Set();
+  const add = k => { if (units.byKey[k] && !seen.has(k)) { seen.add(k); seq.push(k); } };
+  for (const c of state.categories) c.units.forEach(add);
+  for (const u of units.units) add(u.key);
+  for (const kind of kinds) {
+    const keys = seq.filter(k => kindOf(units.byKey[k].anchorId) === kind);
+    if (!keys.length) continue;
+    keys.forEach(k => pinned.add(k));
+    cats.push({ id: `star${kind}`, name: `★ ${nameOf(kind)}`, units: keys });
+  }
+  return { cats, pinned };
+}
+
+// The categories as the sidebar shows them: star blocks first, then the
+// categories without the projects that went up.
+function withBlocks(state, blocks) {
+  if (!blocks.cats.length) return state;
+  return {
+    ...state,
+    categories: [
+      ...blocks.cats,
+      ...state.categories.map(c => ({ ...c, units: c.units.filter(k => !blocks.pinned.has(k)) })),
+    ],
+  };
+}
+
 function desiredOrder(state, units, liveOrder) {
   if (!state.categories.length) return null;
   const out = [];
@@ -239,12 +277,13 @@ function lcs(a, b) {
 // settles swaps that the order alone cannot. A moved unit joins the category of
 // the nearest project above it (the title sits on top of a category's first
 // project, so a drop right above that project lands under the previous
-// category); dropped at the very top, it joins the category below.
-function learnFromOrder(state, units, liveOrder, hintIds = []) {
+// category); dropped at the very top, it joins the category below. Projects
+// in the star blocks (pinned) are left out: they go back up whatever happens.
+function learnFromOrder(state, units, liveOrder, hintIds = [], pinned = new Set()) {
   const nothing = { state, moved: [] };
   if (!state.lastApplied || !state.categories.length) return nothing;
-  const liveSeq = displaySeq(liveOrder, units);
-  const prevSeq = displaySeq(state.lastApplied, units);
+  const liveSeq = displaySeq(liveOrder, units).filter(t => !pinned.has(t));
+  const prevSeq = displaySeq(state.lastApplied, units).filter(t => !pinned.has(t));
   const inPrev = new Set(prevSeq);
   const inLive = new Set(liveSeq);
   const a = prevSeq.filter(t => inLive.has(t));
@@ -281,6 +320,6 @@ function learnFromOrder(state, units, liveOrder, hintIds = []) {
 
 module.exports = {
   NONE_ID, NONE_LABEL, headerLabel, isHeaderLabel,
-  buildUnits, reconcile, categoryOf, desiredOrder, sectionTokens, learnFromOrder, staleDetached,
+  buildUnits, reconcile, categoryOf, starBlocks, withBlocks, desiredOrder, sectionTokens, learnFromOrder, staleDetached,
   _internal: { displaySeq, lcs },
 };

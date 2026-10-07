@@ -2,7 +2,7 @@
 # for the herdr Spaces sidebar. https://github.com/patraianton/herdr-sidebar
 id = "anton.sidebar"
 name = "Sidebar Organizer"
-version = "0.7.0"
+version = "0.8.0"
 min_herdr_version = "0.9.1"
 description = "Categories in the Spaces sidebar, colour stars with Alt+1…4, jump hotkeys, worktree detach and alerts when a 24/7 agent stops working"
 platforms = ["windows", "linux", "macos"]

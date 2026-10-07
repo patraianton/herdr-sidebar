@@ -179,6 +179,63 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     return true;
   }
 
+  // Kinds of star whose projects stand in a block of their own at the top of
+  // the sidebar (settings.json "starsOnTop").
+  const onTopKinds = () => {
+    const v = userSettings.settings().starsOnTop;
+    return Array.isArray(v) ? [...new Set(v.map(Number))].filter(k => stars.KINDS.some(x => x.kind === k)).sort() : [];
+  };
+
+  // A worktree copy moves with its project. When its star sends it up and its
+  // project does not go to the same block, the copy is detached (panes and
+  // agents keep working) so it can stand there; when that is no longer so, it
+  // is put back. Copies detached by hand (w) are left alone. At most three
+  // tries per copy in half an hour, so a copy cannot be thrown back and forth.
+  const autoTries = new Map();
+  function autoAllowed(checkout, now) {
+    const key = paths.normPath(checkout);
+    const recent = (autoTries.get(key) || []).filter(t => now - t < 30 * 60000);
+    if (recent.length >= 3) { autoTries.set(key, recent); return false; }
+    autoTries.set(key, [...recent, now]);
+    return true;
+  }
+
+  async function placeStarredCopies(snap, units) {
+    const top = new Set(onTopKinds());
+    const kinds = starKinds(snap);
+    const now = clock();
+    const projectKind = rk => {
+      const p = snap.workspaces.find(w => w.worktree && !w.worktree.is_linked_worktree && paths.normPath(w.worktree.repo_key) === rk);
+      return p ? kinds.get(p.workspace_id) || 0 : 0;
+    };
+    let changed = false;
+    for (const [wsId, d] of Object.entries(state.detached)) {
+      if (!d.auto) continue;
+      const k = kinds.get(wsId) || 0;
+      if (top.has(k) && projectKind(d.repoKey) !== k) continue;
+      if (!autoAllowed(d.checkout, now)) continue;
+      try {
+        await ops.reattach(herdr, state, { wsId });
+        log('copy put back into its project: its star no longer sends it up', d.name);
+        changed = true;
+      } catch (e) { log('putting the copy back failed', d.name, e.message); }
+    }
+    for (const u of units.units) {
+      if (u.kind !== 'group') continue;
+      const own = kinds.get(u.anchorId) || 0;
+      for (const ch of u.children) {
+        const k = kinds.get(ch.wsId) || 0;
+        if (!top.has(k) || k === own || !autoAllowed(ch.checkout, now)) continue;
+        try {
+          await ops.detach(herdr, state, { wsId: ch.wsId, auto: true });
+          log('copy detached to stand with its star', k, ch.label);
+          changed = true;
+        } catch (e) { log('detaching the copy failed', ch.label, e.message); }
+      }
+    }
+    return changed;
+  }
+
   async function syncOrder(reason) {
     const now = clock();
     let snap = await snapshot();
@@ -201,18 +258,28 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     let h = liveHeaders(snap);
     if (h.ids.size && await closeOldHeaders(snap, h)) { snap = await snapshot(); h = liveHeaders(snap); }
     for (const [cid, wsId] of Object.entries(state.headers)) if (!snap.byId.has(wsId)) delete state.headers[cid];
-    const units = model.buildUnits(snap.workspaces, snap.paths, h.ids); // a title that would not close is not a project
+    let units = model.buildUnits(snap.workspaces, snap.paths, h.ids); // a title that would not close is not a project
+    if (await placeStarredCopies(snap, units)) {
+      snap = await snapshot();
+      h = liveHeaders(snap);
+      units = model.buildUnits(snap.workspaces, snap.paths, h.ids);
+    }
     state = model.reconcile(state, units, now, { continuous: !continuityBroken });
+    const rs = hotkeys.refreshTargets(state.stars || [], snap.workspaces, snap.paths, !continuityBroken);
+    if (rs.changed) { state.stars = rs.hotkeys; log('stars followed a rename or a new id'); }
+    const kinds = starKinds(snap);
+    const blocks = () => model.starBlocks(state, units, id => kinds.get(id) || 0, onTopKinds(), k => stars.KINDS[k - 1].name);
     // A drag in the sidebar moves one project (or one worktree group); the
     // helper's own reorders move many, so they are not hints.
     const hints = dragHints.filter(ids => new Set(ids.map(id => units.unitOf[id])).size === 1).flat();
     dragHints = [];
-    const learned = model.learnFromOrder(state, units, snap.order, hints);
+    const learned = model.learnFromOrder(state, units, snap.order, hints, blocks().pinned);
     if (learned.moved.length) {
       log('moved by hand:', learned.moved.join(' '));
       state = learned.state;
     }
-    const desired = now < pauseUntil ? null : model.desiredOrder(state, units, snap.order);
+    const shown = model.withBlocks(state, blocks());
+    const desired = now < pauseUntil ? null : model.desiredOrder(shown, units, snap.order);
     if (desired && desired.join() !== snap.order.join() && allowMove()) {
       try {
         state.lastApplied = (await herdr.moveBlock(desired)) || desired;
@@ -236,11 +303,9 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       const rt = hotkeys.refreshTabs(state.hotkeys, tabsByWs, !continuityBroken);
       if (rt.changed) { state.hotkeys = rt.hotkeys; log('hotkey tabs followed a rename or a new id'); }
     }
-    const rs = hotkeys.refreshTargets(state.stars || [], snap.workspaces, snap.paths, !continuityBroken);
-    if (rs.changed) { state.stars = rs.hotkeys; log('stars followed a rename or a new id'); }
     last.snap = snap;
     last.units = units;
-    last.sections = model.sectionTokens(state, units, state.lastApplied);
+    last.sections = model.sectionTokens(shown, units, state.lastApplied);
     continuityBroken = false;
     return snap;
   }
@@ -479,7 +544,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     const starOf = wsId => kinds.get(wsId) || 0;
     const unitView = u => ({
       key: u.key, kind: u.kind, label: u.label, anchorId: u.anchorId, wsIds: u.wsIds, linked: !!u.linked,
-      detached: state.detached[u.anchorId] ? { parentLabel: state.detached[u.anchorId].parentLabel } : null,
+      detached: state.detached[u.anchorId] ? { parentLabel: state.detached[u.anchorId].parentLabel, auto: !!state.detached[u.anchorId].auto } : null,
       duty: dutyOf(u.anchorId), agents: agentsOf(u.anchorId), keys: keysOf(u.anchorId), star: starOf(u.anchorId),
       children: u.children.map(ch => ({
         wsId: ch.wsId, label: ch.label, duty: dutyOf(ch.wsId), agents: agentsOf(ch.wsId), keys: keysOf(ch.wsId),
@@ -492,7 +557,9 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       units: c.units.filter(k => units.byKey[k]).map(k => { assigned.add(k); return unitView(units.byKey[k]); }),
     }));
     categories.push({ id: model.NONE_ID, name: 'NO CATEGORY', units: units.units.filter(u => !assigned.has(u.key)).map(unitView) });
-    return { ready: true, session: paths.sessionName(socketPath), categories, starNames: stars.KINDS.map(k => k.name) };
+    return {
+      ready: true, session: paths.sessionName(socketPath), categories, starNames: stars.KINDS.map(k => k.name), starsOnTop: onTopKinds(),
+    };
   }
 
   async function dutyTarget(args) {
@@ -533,7 +600,14 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       }
     },
     'unit.detach': async ({ wsId, catId }) => ops.detach(herdr, state, { wsId, catId }),
-    'unit.reattach': async ({ wsId }) => ops.reattach(herdr, state, { wsId }),
+    'unit.reattach': async ({ wsId }) => {
+      const d = state.detached[wsId];
+      const k = d && d.auto && last.snap ? starKinds(last.snap).get(wsId) || 0 : 0;
+      if (k && onTopKinds().includes(k)) {
+        throw new Error(`It stands at the top because of its star ★${k}. Take the star off and it goes back into "${d.parentLabel}" by itself.`);
+      }
+      return ops.reattach(herdr, state, { wsId });
+    },
     'duty.start': async args => {
       const everyMs = duty.parseEvery(args.every);
       if (!everyMs) throw new Error(`Cannot read the interval "${args.every}". Examples: 30m, 1h, 90.`);
@@ -665,6 +739,20 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       log('stars restored', back.length);
       return { restored: back.length };
     },
+    // Gather the projects with a star of this kind at the top of the sidebar, or
+    // stop (settings.json "starsOnTop"). on: true or false; left out, it flips.
+    'star.top': async ({ kind, on }) => {
+      const k = starKind(kind, false);
+      const file = path.join(configDir, 'settings.json');
+      const s = store.loadJson(file, {}) || {};
+      const list = new Set(onTopKinds());
+      const want = on === undefined ? !list.has(k) : !!on;
+      if (want) list.add(k); else list.delete(k);
+      store.saveJson(file, { ...s, starsOnTop: [...list].sort() });
+      userSettings.useConfigDir(configDir);
+      log('stars on top', [...list].sort().join(',') || 'none');
+      return { kind: k, on: want, name: stars.KINDS[k - 1].name };
+    },
     // Name a kind of star in settings.json; an empty name brings the default back.
     'star.rename': async ({ kind, name }) => {
       const k = starKind(kind, false);
@@ -688,6 +776,10 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
         let snap = await snapshot();
         const h = liveHeaders(snap);
         for (const id of h.ids) await closeHeader(snap, id);
+        for (const [id, d] of Object.entries(state.detached)) {
+          if (!d.auto) continue; // the plugin detached it, so the plugin puts it back
+          try { await ops.reattach(herdr, state, { wsId: id }); } catch (e) { log('putting the copy back failed', d.name, e.message); }
+        }
         snap = await snapshot();
         orig = store.loadJson(files.original, null);
         if (orig && Array.isArray(orig.order)) {

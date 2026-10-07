@@ -1,7 +1,7 @@
 {
   "name": "herdr-sidebar",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "herdr plugin: categories, colour stars, jump hotkeys, worktree detach and duty-agent alerts in the Spaces sidebar",
   "keywords": ["herdr", "herdr-plugin", "terminal", "ai-agents", "claude-code", "codex", "sidebar"],
   "homepage": "https://github.com/patraianton/herdr-sidebar#readme",

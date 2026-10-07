@@ -31,7 +31,17 @@ async function unzoomTabs(herdr, panes) {
 
 const movedTo = (res, wsId) => !!res && res.changed !== false && !!res.pane && res.pane.workspace_id === wsId;
 
-async function detach(herdr, state, { wsId, catId }) {
+// Duty, stars and hotkeys follow the panes to the other workspace.
+function retarget(state, from, to) {
+  for (const d of Object.values(state.duty)) if (d.wsId === from) d.wsId = to;
+  for (const x of [...(state.stars || []), ...(state.hotkeys || [])]) {
+    if (x.target && x.target.wsId === from) x.target = { ...x.target, wsId: to };
+  }
+}
+
+// auto: the helper detaches the copy itself because of its star (see
+// daemon.js); it puts such a copy back by itself too.
+async function detach(herdr, state, { wsId, catId, auto }) {
   const workspaces = await herdr.listWorkspaces();
   const ws = workspaces.find(w => w.workspace_id === wsId);
   if (!ws) throw new Error('This workspace is gone.');
@@ -56,6 +66,7 @@ async function detach(herdr, state, { wsId, catId }) {
     parentLabel: parent ? parent.label : (ws.worktree.repo_name || 'project'),
     name: ws.label,
     at: Date.now(),
+    ...(auto ? { auto: true } : {}),
   };
   const key = `ws:${newId}`;
   const groupKey = `repo:${rk}`;
@@ -68,7 +79,7 @@ async function detach(herdr, state, { wsId, catId }) {
     target.units.splice(i >= 0 ? i + 1 : target.units.length, 0, key);
   }
   state.units[key] = { path: normPath(ws.worktree.checkout_path), label: ws.label, seen: Date.now() };
-  for (const d of Object.values(state.duty)) if (d.wsId === wsId) d.wsId = newId;
+  retarget(state, wsId, newId);
 
   const stuck = [];
   for (const p of panes.slice(1)) {
@@ -106,7 +117,7 @@ async function reattach(herdr, state, { wsId }) {
     }
     const fresh = res.already_open === false && res.root_pane && res.root_pane.pane_id;
     if (fresh) await herdr.closePane(fresh).catch(() => {});
-    for (const x of Object.values(state.duty)) if (x.wsId === wsId) x.wsId = target;
+    retarget(state, wsId, target);
   }
   delete state.detached[wsId];
   const key = `ws:${wsId}`;
