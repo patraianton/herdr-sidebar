@@ -131,6 +131,17 @@ ids in herdr, while an agent already running there keeps the old ones in its env
 once. Scripts that need the current workspace should ask `herdr pane current`. While a star keeps
 the two apart, `w` will not put the copy back. Copies you detached yourself are never touched.
 
+### With a herdr that lists copies on their own lines
+
+A herdr build that knows `[ui.sidebar.spaces] group_worktrees` (proposed upstream; built from
+[patraianton/herdr](https://github.com/patraianton/herdr), branch `anton/build`) can draw every
+worktree copy as a line of its own. When the herdr the plugin runs knows it, setup writes
+`group_worktrees = false` into the plugin's block, and then nothing is detached at all: no pane moves,
+every agent keeps its ids. Each copy carries `⎇ <project>`, stars put exactly the starred line on
+top, and a copy that appears joins its project's category right under the project. The same build
+lets a Space name keep its full width before `⎇ <project>` gets the rest of the row. With a herdr
+that does not know the setting, the plugin works as above.
+
 ## Jump hotkeys
 
 Select a project, press `k` and pick a key. The window only offers keys that are free — not taken

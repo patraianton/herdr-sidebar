@@ -369,7 +369,6 @@ async function main() {
     const v = (...args) => spawnSync(HERDR, ['--session', VIEW, ...args], { env, encoding: 'utf8', windowsHide: true }).stdout || '';
     const vws = JSON.parse(v('workspace', 'create', '--cwd', LAB, '--label', 'viewer')).result.workspace.workspace_id;
     const vpane = (await rpc.call(VIEW_SOCK, 'pane.list', { workspace_id: vws })).panes[0].pane_id;
-    v('pane', 'zoom', vpane, '--mode', 'on');
     v('pane', 'run', vpane, `node "${path.join(__dirname, 'attach.js')}" ${SESSION}`);
     const screen = () => v('pane', 'read', vpane, '--source', 'visible', '--lines', '45');
     // the lab sidebar is narrow: plain1 and plain2 also carry hotkeys, so their names are cut to «plai…»

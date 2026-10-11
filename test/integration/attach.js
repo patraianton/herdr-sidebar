@@ -5,5 +5,6 @@ const { spawn } = require('node:child_process');
 
 const env = { ...process.env };
 for (const k of Object.keys(env)) if (k.startsWith('HERDR_') && !['HERDR_BIN_PATH', 'HERDR_CONFIG_PATH'].includes(k)) delete env[k];
-spawn(process.env.HERDR_BIN_PATH || 'herdr', ['--session', process.argv[2]], { stdio: 'inherit', env })
+// argv[3]: the client to run; herdr sets HERDR_BIN_PATH in its panes to its own binary.
+spawn(process.argv[3] || process.env.HERDR_BIN_PATH || 'herdr', ['--session', process.argv[2]], { stdio: 'inherit', env })
   .on('exit', code => process.exit(code || 0));
