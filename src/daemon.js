@@ -193,10 +193,10 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
   // stand in different places (a star block or the categories) — the copy's
   // star sends it up alone, or the project's star sends the project up without
   // it — the copy is detached (panes and agents keep working) so each stands
-  // where it belongs; when they belong together again, it is put back (only
-  // while the project is open). Copies detached by hand (w) are left alone. At
-  // most three tries per copy in half an hour, so a copy cannot be thrown back
-  // and forth.
+  // where it belongs. It is not put back by itself: every move gives the panes
+  // new ids while the agents in them keep the old ones (HERDR_WORKSPACE_ID
+  // stops resolving), so a copy moves at most once; `w` puts it back by hand.
+  // At most three tries per copy in half an hour.
   const autoTries = new Map();
   function autoAllowed(checkout, now) {
     const key = paths.normPath(checkout);
@@ -212,19 +212,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     const now = clock();
     // Where a workspace stands: the block of its star kind, or 0 for the categories.
     const place = id => { const k = kinds.get(id) || 0; return top.has(k) ? k : 0; };
-    const project = rk => snap.workspaces.find(w => w.worktree && !w.worktree.is_linked_worktree && paths.normPath(w.worktree.repo_key) === rk);
     let changed = false;
-    for (const [wsId, d] of Object.entries(state.detached)) {
-      if (!d.auto) continue;
-      const p = project(d.repoKey);
-      if (!p || place(wsId) !== place(p.workspace_id)) continue;
-      if (!autoAllowed(d.checkout, now)) continue;
-      try {
-        await ops.reattach(herdr, state, { wsId });
-        log('copy put back into its project: they stand in one place again', d.name);
-        changed = true;
-      } catch (e) { log('putting the copy back failed', d.name, e.message); }
-    }
     for (const u of units.units) {
       if (u.kind !== 'group') continue;
       const own = place(u.anchorId);

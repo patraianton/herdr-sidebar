@@ -124,9 +124,12 @@ own, marked `⎇ <project>` after its name:
 - a copy with the star goes up on its own when its project does not go to the same block;
 - a copy with the same star as its project goes up with it, inside the group.
 
-When the two belong together again (a star taken off, or put on the other one too), the copy is put
-back into its project — as long as the project is open. Until then `w` will not put it back. Copies
-you detached yourself are never touched.
+The copy is not put back by itself when the two belong together again: it stays on its own line
+right under the project, and `w` puts it back if you want the group. Each move gives the panes new
+ids in herdr, while an agent already running there keeps the old ones in its environment
+(`HERDR_PANE_ID` still resolves, `HERDR_WORKSPACE_ID` does not), so the plugin moves a copy at most
+once. Scripts that need the current workspace should ask `herdr pane current`. While a star keeps
+the two apart, `w` will not put the copy back. Copies you detached yourself are never touched.
 
 ## Jump hotkeys
 

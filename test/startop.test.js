@@ -1,8 +1,8 @@
 'use strict';
 // Stars on top: the projects with a star of a chosen kind stand in a block of
 // their own above every category; a worktree copy that stands apart from its
-// project (its own star, or the project's star without it) is detached and put
-// back when the two stand together again.
+// project (its own star, or the project's star without it) is detached once and
+// stays apart, so its agents' ids change no more than once.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -198,7 +198,7 @@ test('a kind of star put on top: its projects go up under their own title and co
   x.cleanup();
 });
 
-test('a starred worktree copy is detached to stand on top and put back into its project when the star is off', async () => {
+test('a starred worktree copy is detached to stand on top and stays apart under its project when the star is off', async () => {
   const list = [
     ws('w1', 'api', wt('api', false, 'C:\\p\\api')),
     ws('w2', 'cookie', wt('api', true, 'C:\\wt\\cookie')),
@@ -222,10 +222,16 @@ test('a starred worktree copy is detached to stand on top and put back into its 
   await assert.rejects(x.d.handle('unit.reattach', { wsId: 'w10' }), /Take the star off/);
 
   await x.d.handle('star.set', { wsId: 'w10', kind: 0 });
+  assert.deepEqual(x.calls.slice(1), [], 'no second move');
+  assert.deepEqual(Object.keys(x.d._test.state().detached), ['w10']);
+  assert.deepEqual(ids(list), ['w1', 'w10', 'w3'], 'right under its project');
+  assert.equal(tok(list, 'w1', 'section'), '━━ CODE ━━');
+  assert.equal(tok(list, 'w10', 'project'), '⎇ api');
+
+  assert.deepEqual(await x.d.handle('unit.reattach', { wsId: 'w10' }), { wsId: 'w11' }, 'w puts it back by hand');
   assert.deepEqual(x.calls.slice(1), [['open', 'w1', 'C:\\wt\\cookie'], ['move', 'w2:p1', 'new_tab']]);
   assert.deepEqual(x.d._test.state().detached, {});
   assert.deepEqual(ids(list), ['w1', 'w11', 'w3'], 'back in its project');
-  assert.equal(tok(list, 'w1', 'section'), '━━ CODE ━━');
   x.cleanup();
 });
 
@@ -278,13 +284,9 @@ test('a project with the star goes up alone: its copies without that star stay i
   await assert.rejects(x.d.handle('unit.reattach', { wsId: 'w10' }), /"api" stands at the top because of its star ★1/);
 
   await x.d.handle('star.set', { wsId: 'w1', kind: 0 });
-  assert.deepEqual(x.calls.slice(2), [
-    ['open', 'w1', 'C:\wt\cookie'], ['move', 'w2:p1', 'new_tab'],
-    ['open', 'w1', 'C:\wt\jam'], ['move', 'w3:p1', 'new_tab'],
-  ]);
-  assert.deepEqual(x.d._test.state().detached, {});
-  assert.deepEqual(x.d._test.state().categories[0].units, ['ws:w5', 'repo:c:/p/api/.git', 'ws:w4'], 'the group is whole again in its place');
-  assert.deepEqual(ids(list), ['w5', 'w1', 'w12', 'w13', 'w4']);
+  assert.deepEqual(x.calls.slice(2), [], 'no second move');
+  assert.deepEqual(Object.keys(x.d._test.state().detached).sort(), ['w10', 'w11']);
+  assert.deepEqual(ids(list), ['w5', 'w1', 'w10', 'w11', 'w4'], 'the project is back in its place, its copies under it');
   assert.equal(tok(list, 'w5', 'section'), '━━ CODE ━━');
   x.cleanup();
 });
