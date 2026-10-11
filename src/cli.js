@@ -370,7 +370,11 @@ async function lavishNext(h, dir) {
   }
   await h.focusWorkspace(w.workspace_id);
   const marked = new Set(store.loadJson(path.join(dir, 'lavish-pages.json'), {}).panes || []);
-  const pane = (await h.listPanes(w.workspace_id)).find(p => marked.has(p.pane_id));
+  let pane = (await h.listPanes(w.workspace_id)).find(p => marked.has(p.pane_id));
+  // The pane moved with a detached copy: herdr still answers for the id the agent carries.
+  for (const id of pane ? [] : marked) {
+    try { const p = await h.getPane(id); if (p && p.workspace_id === w.workspace_id) { pane = p; break; } } catch {}
+  }
   if (pane && pane.tab_id) await h.focusTab(pane.tab_id);
   return w.workspace_id;
 }

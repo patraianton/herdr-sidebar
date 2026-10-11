@@ -398,9 +398,30 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     return lavishWatch.refresh()
       .then(set => { lavishError = ''; return set; },
         e => { if (e.message !== lavishError) log('lavish probe failed', e.message); lavishError = e.message; return new Set(); })
+      .then(currentPanes)
       .then(setLavish)
       .finally(() => { lavishBusy = false; });
   }
+  // A process keeps the HERDR_PANE_ID it started with, but a pane moved to another workspace
+  // (a detached copy) gets a new id; herdr still answers for the old one. Old id -> id now.
+  const paneNow = new Map();
+  async function currentPanes(set) {
+    const live = new Set(last.snap ? last.snap.panes.map(p => p.pane_id) : []);
+    const out = new Set();
+    for (const id of set) {
+      if (!live.has(id) && !live.has(paneNow.get(id))) {
+        try { const p = await herdr.getPane(id); if (p && p.pane_id) paneNow.set(id, p.pane_id); } catch {}
+      }
+      out.add(live.has(id) ? id : paneNow.get(id) || id);
+    }
+    return out;
+  }
+  // The other way round: the ids the processes in these panes may still carry.
+  const withOldIds = ids => {
+    const out = new Set(ids);
+    for (const [old, now] of paneNow) if (ids.has(now)) out.add(old);
+    return out;
+  };
   function setLavish(set) {
     const same = set.size === last.lavish.size && [...set].every(id => last.lavish.has(id));
     last.lavish = set;
@@ -764,8 +785,8 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       const snap = await snapshot();
       const w = snap.workspaces.find(x => x.focused);
       if (!w) throw new Error('No workspace is focused.');
-      const r = lavishWatch.toggle(new Set(snap.panes.filter(p => p.workspace_id === w.workspace_id).map(p => p.pane_id)));
-      setLavish(r.panes);
+      const r = lavishWatch.toggle(withOldIds(new Set(snap.panes.filter(p => p.workspace_id === w.workspace_id).map(p => p.pane_id))));
+      setLavish(await currentPanes(r.panes));
       log('lavish', r.off ? 'off' : 'back', w.workspace_id, (r.off || r.back).length);
       return { off: r.off, back: r.back };
     },

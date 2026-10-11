@@ -90,6 +90,7 @@ function fakeHerdr(workspaces, panes) {
     },
     notify: async () => {},
     tokensOf: id => workspaces.find(w => w.workspace_id === id).tokens || {},
+    focus: id => { for (const w of workspaces) w.focused = w.workspace_id === id; },
   };
 }
 
@@ -358,6 +359,42 @@ test('F5 in herdr takes the dot off the focused window at once', async () => {
     await d._test.cycle('test');
     assert.equal(herdr.tokensOf('w1').lavish, undefined);
     assert.equal(herdr.tokensOf('w2').lavish, lavish.MARK);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a pane that moved with a detached copy keeps its dot: herdr still answers for the old id the agent carries', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-lavish-'));
+  fs.mkdirSync(path.join(dir, 'config'));
+  const herdr = fakeHerdr(
+    [{ workspace_id: 'w1', label: 'api' }, { workspace_id: 'w9', label: 'cookie' }],
+    [{ pane_id: 'w1:p1', workspace_id: 'w1', cwd: 'C:/p/api' }, { pane_id: 'w9:p1', workspace_id: 'w9', cwd: 'C:/wt/cookie' }],
+  );
+  herdr.getPane = async id => {
+    if (id === 'w4:p1') return { pane_id: 'w9:p1', workspace_id: 'w9', tab_id: 'w9:t1' };
+    throw new Error('pane_not_found');
+  };
+  const toggled = [];
+  const d = createDaemon({
+    socketPath: 'C:/fake/herdr.sock', dir, configDir: path.join(dir, 'config'), herdr,
+    subscribe: () => ({ close() {} }), now: () => 1_000_000_000, sendTelegram: async () => true,
+    lavish: {
+      refresh: async () => new Set(['w4:p1']),
+      toggle: ids => { toggled.push([...ids].sort()); return { off: ['page'], panes: new Set() }; },
+    },
+  });
+  try {
+    d._test.markConnected();
+    await d._test.cycle('test');
+    await d._test.refreshLavish();
+    await d._test.cycle('test');
+    assert.equal(herdr.tokensOf('w9').lavish, lavish.MARK, 'the dot is on the workspace the pane lives in now');
+    assert.equal(herdr.tokensOf('w1').lavish, undefined);
+
+    herdr.focus('w9');
+    await d.handle('lavish.toggle');
+    assert.deepEqual(toggled, [['w4:p1', 'w9:p1']], 'F5 there reaches the page the agent waited on under its old id');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
