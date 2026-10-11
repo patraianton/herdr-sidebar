@@ -5,6 +5,8 @@
 // `star N` for Alt+N, the stars of kind N (the action star-N), and
 // `star-toggle N` for FN, the star of kind N on the focused workspace,
 // and `star-reset` for Alt+0, every star off or back again.
+// `lavish-next` for Alt+5, the next window with the violet Lavish dot,
+// and `lavish-toggle` for F5, that dot off the focused window or back.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -15,6 +17,7 @@ const store = require('./store');
 const configpatch = require('./configpatch');
 const hotkeys = require('./hotkeys');
 const stars = require('./stars');
+const lavish = require('./lavish');
 const { makeHerdr, PLUGIN_ID } = require('./herdr');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -357,6 +360,34 @@ async function star(kind) {
   if (id !== 'none' && id !== 'missing') store.saveJson(file, { ...last, [kind]: id });
 }
 
+// Alt+5: the next window down the sidebar with the Lavish dot, round to the first, opened on
+// the tab of the pane whose page wants an answer (the helper keeps those panes).
+async function lavishNext(h, dir) {
+  const w = lavish.nextMarked(await h.listWorkspaces());
+  if (!w) {
+    await h.notify(`${lavish.MARK} Lavish`, 'No window is waiting for your answer on a Lavish page.');
+    return 'none';
+  }
+  await h.focusWorkspace(w.workspace_id);
+  const marked = new Set(store.loadJson(path.join(dir, 'lavish-pages.json'), {}).panes || []);
+  const pane = (await h.listPanes(w.workspace_id)).find(p => marked.has(p.pane_id));
+  if (pane && pane.tab_id) await h.focusTab(pane.tab_id);
+  return w.workspace_id;
+}
+
+// F5: the Lavish dot off the focused window, or back; a notice says which pages.
+async function lavishToggle() {
+  const sock = process.env.HERDR_SOCKET_PATH;
+  if (!sock) fail('The Lavish dot is taken off from herdr with F5.');
+  let note;
+  try {
+    note = lavish.toggleNote(await helper('lavish.toggle', {}));
+  } catch (e) {
+    note = e.message;
+  }
+  await makeHerdr(sock).notify(`${lavish.MARK} Lavish`, note).catch(() => {});
+}
+
 async function main(argv) {
   const [cmd, ...rest] = argv;
   if (cmd === 'duty') return duty(rest);
@@ -369,6 +400,8 @@ async function main(argv) {
   if (cmd === 'star') return star(rest[0]);
   if (cmd === 'star-toggle') return starToggle(rest[0]);
   if (cmd === 'star-reset') return starReset();
+  if (cmd === 'lavish-next') { const { h, dir } = savedState(); return lavishNext(h, dir); }
+  if (cmd === 'lavish-toggle') return lavishToggle();
   say('Commands: duty …, setup, install, uninstall, status, open');
   say(USAGE);
   return undefined;
@@ -381,4 +414,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { parseArgs, USAGE, jumpTo, starJump };
+module.exports = { parseArgs, USAGE, jumpTo, starJump, lavishNext };

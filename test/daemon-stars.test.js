@@ -98,7 +98,7 @@ test('Alt+1…Alt+4 are not offered as a hotkey', async () => {
   }
   const menu = await x.d.handle('hotkey.menu', { wsId: 'w1' });
   assert.ok(!menu.choices.some(c => ['alt+1', 'alt+2', 'alt+3', 'alt+4'].includes(c.key)));
-  assert.ok(menu.choices.some(c => c.key === 'alt+5'));
+  assert.ok(menu.choices.some(c => c.key === 'alt+8'));
   x.cleanup();
 });
 
@@ -145,7 +145,8 @@ test('F1…F4 are not offered as a hotkey', async () => {
   await assert.rejects(x.d.handle('hotkey.set', { key: 'f2', wsId: 'w1' }), /is taken: star 2/);
   const menu = await x.d.handle('hotkey.menu', { wsId: 'w1' });
   assert.ok(!menu.choices.some(c => ['f1', 'f2', 'f3', 'f4'].includes(c.key)));
-  assert.ok(menu.choices.some(c => c.key === 'f5'));
+  assert.ok(menu.choices.some(c => c.key === 'f6'));
+  await assert.rejects(x.d.handle('hotkey.set', { key: 'f5', wsId: 'w1' }), /is taken: Lavish/);
   x.cleanup();
 });
 

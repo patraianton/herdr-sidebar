@@ -3,6 +3,7 @@
 // key bindings (the window, the star keys and the jump hotkeys), both between
 // marker comments, and undo that exactly.
 const { KINDS, token } = require('./stars');
+const lavish = require('./lavish');
 
 const BEGIN = '# >>> anton.sidebar (Sidebar Organizer plugin; undo: U in its window)';
 const END = '# <<< anton.sidebar';
@@ -13,9 +14,11 @@ const KEYS_END = '# <<< anton.sidebar keys';
 
 // The first row is the category title: only the first project of a category
 // reports $section, and a row with no value is not drawn at all.
+// $lavish is the violet dot after the star: an agent there waits for your answer on a Lavish page.
+const STAR_TOKEN = `{ token = "$star", rules = [${KINDS.map(k => `{ starts_with = "${token(k.kind)}", fg = "${k.color}" }`).join(', ')}] }`;
 const STYLED_ROWS = [
   '  [{ token = "$section", fg = "#fabd2f", bold = true }],',
-  `  ["state_icon", { token = "$star", rules = [${KINDS.map(k => `{ starts_with = "${token(k.kind)}", fg = "${k.color}" }`).join(', ')}] }, "workspace", { token = "$key", fg = "#83a598" }],`,
+  `  ["state_icon", ${STAR_TOKEN}, { token = "$lavish", fg = "${lavish.COLOR}" }, "workspace", { token = "$key", fg = "#83a598" }],`,
   '  ["branch", "git_status"],',
   '  [{ token = "$project", dim = true }],',
   '  [{ token = "$duty", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }, { starts_with = "◆", fg = "#b8bb26" }] }],',
@@ -27,6 +30,10 @@ const STAR_KEYS = KINDS.map(k => `alt+${k.kind}`);
 const TOGGLE_KEYS = KINDS.map(k => `f${k.kind}`);
 // Alt+0 takes every star off; pressed again while there are none, brings them back.
 const RESET_KEY = 'alt+0';
+// Alt+5 walks through the workspaces with the violet Lavish dot.
+const LAVISH_KEY = 'alt+5';
+// F5 takes the dot off the focused workspace (a report you have read) or brings it back.
+const LAVISH_OFF_KEY = 'f5';
 const binding = (key, action, description) => [
   '[[keys.command]]', `key = "${key}"`, 'type = "plugin_action"', `command = "anton.sidebar.${action}"`, `description = "${description}"`,
 ];
@@ -36,6 +43,8 @@ const FIXED_BINDINGS = [
   ...KINDS.flatMap((k, i) => binding(STAR_KEYS[i], `star-${k.kind}`, `stars ${k.kind}: next project with this star`)),
   ...KINDS.flatMap((k, i) => binding(TOGGLE_KEYS[i], `star-toggle-${k.kind}`, `star ${k.kind}: put on or take off`)),
   ...binding(RESET_KEY, 'star-reset', 'stars: take all off or bring back'),
+  ...binding(LAVISH_KEY, 'lavish-next', 'lavish: next window waiting for your answer'),
+  ...binding(LAVISH_OFF_KEY, 'lavish-toggle', 'lavish: dot off this window or back'),
 ];
 const keysBlock = (extra = []) => [KEYS_BEGIN, ...FIXED_BINDINGS, ...extra, KEYS_END];
 const squash = s => s.replace(/\s+/g, '');
@@ -47,6 +56,7 @@ const OUR_ROWS = new Set([
   squash('["state_icon", { token = "workspace", rules = [{ starts_with = "━━", fg = "#fabd2f", bold = true }] }]'),
   squash('["state_icon", "workspace", { token = "$key", fg = "#83a598" }]'),
   squash('["state_icon", { token = "$star", fg = "#fabd2f" }, "workspace", { token = "$key", fg = "#83a598" }]'),
+  squash(`["state_icon", ${STAR_TOKEN}, "workspace", { token = "$key", fg = "#83a598" }]`), // before the $lavish dot (08.10.2026)
 ]);
 const TABLE_RE = /^\s*\[\[?\s*[A-Za-z0-9_."-]+(\s*\.\s*[A-Za-z0-9_."-]+)*\s*\]\]?\s*(#.*)?$/;
 
@@ -219,4 +229,4 @@ function unpatchConfig(text, { originalRows, hadTable }) {
   return lines.join(eol);
 }
 
-module.exports = { BEGIN, END, KEYS_BEGIN, KEYS_END, OPEN_KEY, STAR_KEYS, TOGGLE_KEYS, RESET_KEY, patchConfig, refreshConfig, setKeysBlock, unpatchConfig, _internal: { topLevelElements, findRows } };
+module.exports = { BEGIN, END, KEYS_BEGIN, KEYS_END, OPEN_KEY, STAR_KEYS, TOGGLE_KEYS, RESET_KEY, LAVISH_KEY, LAVISH_OFF_KEY, patchConfig, refreshConfig, setKeysBlock, unpatchConfig, _internal: { topLevelElements, findRows } };

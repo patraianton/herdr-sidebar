@@ -95,6 +95,18 @@ id = "star-reset"
 title = "Stars: take all off or bring back"
 command = ["node", "src/cli.js", "star-reset"]
 
+# Alt+5: the next window with the violet Lavish dot, opened on the tab where the agent waits.
+[[actions]]
+id = "lavish-next"
+title = "Lavish: next window waiting for your answer"
+command = ["node", "src/cli.js", "lavish-next"]
+
+# F5: the Lavish dot off the open window (a page that needs no answer), or back again.
+[[actions]]
+id = "lavish-toggle"
+title = "Lavish: dot off this window or back"
+command = ["node", "src/cli.js", "lavish-toggle"]
+
 # Jump hotkeys: config.toml binds a key to the action jump-N, and the helper keeps
 # what N points at (window, key k). 30 slots is plenty.
 [[actions]]

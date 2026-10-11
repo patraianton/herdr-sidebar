@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 // Background helper, one per herdr session: keeps the Spaces order, publishes
-// the $section/$project/$duty/$key/$star tokens, watches duty agents, keeps the jump
+// the $section/$project/$duty/$key/$star/$lavish tokens, watches duty agents, keeps the jump
 // hotkeys in config.toml and serves the window and CLI. Category titles are $section tokens drawn on top of the first project
 // of each category; earlier versions used separate title workspaces, which the
 // helper now closes.
@@ -21,12 +21,13 @@ const hotkeys = require('./hotkeys');
 const configpatch = require('./configpatch');
 const stars = require('./stars');
 const userSettings = require('./settings');
+const lavish = require('./lavish');
 
 const SUBSCRIPTIONS = [
   'workspace.created', 'workspace.closed', 'workspace.moved', 'workspace.reordered', 'workspace.renamed',
   'worktree.created', 'worktree.opened', 'worktree.removed',
 ].map(type => ({ type }));
-const TOKEN_KEYS = ['section', 'project', 'duty', 'key', 'star'];
+const TOKEN_KEYS = ['section', 'project', 'duty', 'key', 'star', 'lavish'];
 const NOT_INSTALLED = 'The plugin is not set up in herdr\'s config yet. Run: herdr plugin action invoke setup --plugin anton.sidebar';
 
 // config.toml access for the hotkeys; tests pass their own.
@@ -71,7 +72,7 @@ function defaultKeysConfig(configDir) {
   };
 }
 
-function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: subscribeIn, now: clockIn, sendTelegram: sendIn, keysConfig: keysIn }) {
+function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: subscribeIn, now: clockIn, sendTelegram: sendIn, keysConfig: keysIn, lavish: lavishWatch = null }) {
   const herdr = herdrIn || makeHerdr(socketPath);
   const keysConfig = keysIn || defaultKeysConfig(configDir);
   const subscribe = subscribeIn || rpc.subscribe;
@@ -88,7 +89,9 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
   let state = store.loadState(files.state);
   let startedAt = clock();
   let chain = Promise.resolve();
-  const last = { snap: null, units: null, sections: {} };
+  const last = { snap: null, units: null, sections: {}, lavish: new Set() };
+  let lavishBusy = false;
+  let lavishError = '';
   let dragHints = []; // workspace ids herdr reported as moved by a reorder since the last cycle
   let sub = null;
   let server = null;
@@ -324,6 +327,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     for (const d of Object.values(state.duty)) if (d.wsId) put(d.wsId, 'duty', duty.dutyToken(d, clock()));
     for (const [wsId, list] of keysByWs()) put(wsId, 'key', list.map(k => k.display).join(' '));
     for (const [wsId, kind] of starKinds(snap)) put(wsId, 'star', stars.token(kind));
+    for (const p of snap.panes) if (last.lavish.has(p.pane_id)) put(p.workspace_id, 'lavish', lavish.MARK);
     return want;
   }
 
@@ -385,7 +389,25 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     if (kickTimer.unref) kickTimer.unref();
   }
 
+  // Which panes have a Lavish page that still wants your answer. The probe runs beside the
+  // cycle (it takes about a second), and a change redraws the marks at once.
+  function refreshLavish() {
+    if (!lavishWatch || lavishBusy || stopping) return Promise.resolve();
+    lavishBusy = true;
+    return lavishWatch.refresh()
+      .then(set => { lavishError = ''; return set; },
+        e => { if (e.message !== lavishError) log('lavish probe failed', e.message); lavishError = e.message; return new Set(); })
+      .then(setLavish)
+      .finally(() => { lavishBusy = false; });
+  }
+  function setLavish(set) {
+    const same = set.size === last.lavish.size && [...set].every(id => last.lavish.has(id));
+    last.lavish = set;
+    if (!same) kick('lavish', 0);
+  }
+
   function tick() {
+    refreshLavish();
     const t = clock();
     if (lastTickAt && t - lastTickAt > 3 * settings.tickSec * 1000) {
       startedAt = t;
@@ -407,7 +429,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
   function connectEvents() {
     if (stopping) return;
     sub = subscribe(socketPath, SUBSCRIPTIONS, {
-      onReady: () => { connected = true; lostSince = null; log('connected to herdr'); kick('connect', 0); },
+      onReady: () => { connected = true; lostSince = null; log('connected to herdr'); kick('connect', 0); refreshLavish(); },
       onEvent: msg => { noteDrag(msg); kick('event', 1000); },
       onClose: err => {
         const wasConnected = connected;
@@ -497,6 +519,8 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       used.set(hotkeys.normKey(configpatch.TOGGLE_KEYS[i]), `star ${k.kind}: put on or take off`);
     });
     used.set(hotkeys.normKey(configpatch.RESET_KEY), 'stars: take all off or bring back');
+    used.set(hotkeys.normKey(configpatch.LAVISH_KEY), 'Lavish: next window waiting for your answer');
+    used.set(hotkeys.normKey(configpatch.LAVISH_OFF_KEY), 'Lavish: dot off this window or back');
     return used;
   };
 
@@ -722,6 +746,19 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       if (!w) throw new Error('No workspace is focused.');
       return setStar(snap, w.workspace_id, starKinds(snap).get(w.workspace_id) === k ? 0 : k);
     },
+    // F5: the Lavish dot off the focused workspace (a page that needs no answer: its link stays
+    // in the status line, the dot comes back when the agent changes the page); pressed where
+    // there is no dot, the pages taken off there come back.
+    'lavish.toggle': async () => {
+      if (!lavishWatch) throw new Error('The Lavish dot is not running in this helper.');
+      const snap = await snapshot();
+      const w = snap.workspaces.find(x => x.focused);
+      if (!w) throw new Error('No workspace is focused.');
+      const r = lavishWatch.toggle(new Set(snap.panes.filter(p => p.workspace_id === w.workspace_id).map(p => p.pane_id)));
+      setLavish(r.panes);
+      log('lavish', r.off ? 'off' : 'back', w.workspace_id, (r.off || r.back).length);
+      return { off: r.off, back: r.back };
+    },
     // Alt+0: every star off, closed projects included, kept aside; pressed
     // again while there are no stars, the ones kept aside come back.
     'star.reset': async () => {
@@ -853,7 +890,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     _test: {
       markConnected: () => { connected = true; },
       cycle: reason => serial(() => cycleInner(reason)),
-      connectEvents, reconnect, tick,
+      connectEvents, reconnect, tick, refreshLavish,
       state: () => state, startedAt: () => startedAt, stopping: () => stopping,
     },
   };
@@ -868,7 +905,10 @@ if (require.main === module) {
     process.exit(2);
   }
   if (paths.helperOff(stateRoot, socketPath)) process.exit(0);
-  const d = createDaemon({ socketPath, dir: paths.sessionDir(stateRoot, socketPath), configDir });
+  const dir = paths.sessionDir(stateRoot, socketPath);
+  // The Lavish pages and the panes that waited on them; Alt+5 reads the panes to open the right tab.
+  const lavishFile = path.join(dir, 'lavish-pages.json');
+  const d = createDaemon({ socketPath, dir, configDir, lavish: lavish.makeWatch({ load: () => store.loadJson(lavishFile, {}), save: data => store.saveJson(lavishFile, data) }) });
   process.on('uncaughtException', e => { d.log('crash', e && e.stack); process.exit(1); });
   process.on('unhandledRejection', e => d.log('unhandled', e && (e.stack || e.message || e)));
   d.start().then(ok => { if (!ok) process.exit(0); }, e => { d.log('start failed', e.message); process.exit(1); });

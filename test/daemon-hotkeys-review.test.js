@@ -48,7 +48,7 @@ test('a binding another agent adds while ours is being checked survives', async 
     issues: cfg => { if (cfg.checks === 1) cfg.text += FOREIGN; return []; },
   });
   await x.d._test.cycle('t');
-  await x.d.handle('hotkey.set', { key: 'alt+5', wsId: 'w1' });
+  await x.d.handle('hotkey.set', { key: 'alt+8', wsId: 'w1' });
   assert.ok(x.cfg.text.includes('yourmove.toggle'), 'foreign block lost');
   assert.ok(x.cfg.text.includes('anton.sidebar.jump-1'));
   x.cleanup();
@@ -58,12 +58,12 @@ test('a rollback keeps what another agent added meanwhile', async () => {
   const x = setup({
     workspaces: [ws('w1', 'a')],
     issues: cfg => {
-      if (cfg.checks === 2) { cfg.text += FOREIGN; return ['alt+5: something wrong']; }
+      if (cfg.checks === 2) { cfg.text += FOREIGN; return ['alt+8: something wrong']; }
       return [];
     },
   });
   await x.d._test.cycle('t');
-  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+5', wsId: 'w1' }), /did not accept/);
+  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+8', wsId: 'w1' }), /did not accept/);
   assert.ok(x.cfg.text.includes('yourmove.toggle'), 'foreign block lost by the rollback');
   assert.ok(!x.cfg.text.includes('jump-1'), 'our binding left behind');
   x.cleanup();
@@ -77,7 +77,7 @@ test('an old problem whose binding numbers shifted does not block a new key', as
       : 'prefix+y: kept keys.command[1].key, disabled keys.command[2].key'],
   });
   await x.d._test.cycle('t');
-  await x.d.handle('hotkey.set', { key: 'alt+5', wsId: 'w1' });
+  await x.d.handle('hotkey.set', { key: 'alt+8', wsId: 'w1' });
   assert.ok(x.cfg.text.includes('jump-1'));
   x.cleanup();
 });
@@ -86,7 +86,7 @@ test('when herdr cannot check the config, nothing is written', async () => {
   const x = setup({ workspaces: [ws('w1', 'a')], issues: () => { throw new Error('Could not check herdr settings: spawn herdr ENOENT'); } });
   await x.d._test.cycle('t');
   const before = x.cfg.text;
-  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+5', wsId: 'w1' }), /Could not check/);
+  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+8', wsId: 'w1' }), /Could not check/);
   assert.equal(x.cfg.text, before);
   x.cleanup();
 });
@@ -113,7 +113,7 @@ test('the window binding of the plugin itself is not offered as a custom key', a
 test('if herdr does not re-read its settings, the answer says so', async () => {
   const x = setup({ workspaces: [ws('w1', 'a')], reloadFails: true });
   await x.d._test.cycle('t');
-  const r = await x.d.handle('hotkey.set', { key: 'alt+5', wsId: 'w1' });
+  const r = await x.d.handle('hotkey.set', { key: 'alt+8', wsId: 'w1' });
   assert.equal(r.reloaded, false);
   x.cleanup();
 });
@@ -121,7 +121,7 @@ test('if herdr does not re-read its settings, the answer says so', async () => {
 test('a renamed tab keeps its hotkey', async () => {
   const x = setup({ workspaces: [ws('w4', 'cto')], tabs: [{ tab_id: 'w4:t2', workspace_id: 'w4', label: 'bots' }] });
   await x.d._test.cycle('t');
-  await x.d.handle('hotkey.set', { key: 'f5', wsId: 'w4', tabId: 'w4:t2' });
+  await x.d.handle('hotkey.set', { key: 'f6', wsId: 'w4', tabId: 'w4:t2' });
   x.tabs[0].label = 'bots-2';
   await x.d._test.cycle('t2');
   assert.equal(x.d._test.state().hotkeys[0].target.tabLabel, 'bots-2');

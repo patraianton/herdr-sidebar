@@ -26,10 +26,21 @@ const SAMPLE = [
   '',
 ].join('\r\n');
 
-// The name row: a star coloured by its kind, the name, the hotkeys.
-const NAME_ROW = '["state_icon", { token = "$star", rules = [{ starts_with = "★1", fg = "#fabd2f" }, { starts_with = "★2", fg = "#8ec07c" }, '
-  + '{ starts_with = "★3", fg = "#d3869b" }, { starts_with = "★4", fg = "#fe8019" }] }, "workspace", { token = "$key", fg = "#83a598" }]';
+// The name row: a star coloured by its kind, the violet Lavish dot, the name, the hotkeys.
+const STARS = '{ token = "$star", rules = [{ starts_with = "★1", fg = "#fabd2f" }, { starts_with = "★2", fg = "#8ec07c" }, '
+  + '{ starts_with = "★3", fg = "#d3869b" }, { starts_with = "★4", fg = "#fe8019" }] }';
+const NAME_ROW = `["state_icon", ${STARS}, { token = "$lavish", fg = "#a371f7" }, "workspace", { token = "$key", fg = "#83a598" }]`;
+const STAR_ROW_V2 = `["state_icon", ${STARS}, "workspace", { token = "$key", fg = "#83a598" }]`;
 const STAR_ROW_V1 = '["state_icon", { token = "$star", fg = "#fabd2f" }, "workspace", { token = "$key", fg = "#83a598" }]';
+
+test('refresh puts the Lavish dot into the star row of the previous version', () => {
+  const old = cp.patchConfig(SAMPLE).text.replace(NAME_ROW, STAR_ROW_V2);
+  assert.ok(old.includes(STAR_ROW_V2) && !old.includes('$lavish'));
+  const next = cp.refreshConfig(old);
+  assert.ok(next.includes(NAME_ROW));
+  assert.ok(!next.includes(STAR_ROW_V2), 'the old row is replaced, not kept beside the new one');
+  assert.equal(cp.refreshConfig(next), next, 'a second refresh changes nothing');
+});
 
 test('patch replaces rows, keeps $kran and other content, adds the key binding', () => {
   const r = cp.patchConfig(SAMPLE);

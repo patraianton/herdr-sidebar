@@ -53,19 +53,19 @@ const keyTok = (x, id) => (x.workspaces.find(w => w.workspace_id === id).tokens 
 test('assigning a key writes a binding to a jump action, reloads herdr and shows the key on the row', async () => {
   const x = setup({ workspaces: [ws('w1', '[ACME] Ads'), ws('w2', 'acme-api')] });
   await x.d._test.cycle('t');
-  const r = await x.d.handle('hotkey.set', { key: 'Alt+5', wsId: 'w1' });
-  assert.equal(r.display, 'Alt+5');
+  const r = await x.d.handle('hotkey.set', { key: 'Alt+8', wsId: 'w1' });
+  assert.equal(r.display, 'Alt+8');
   assert.equal(r.label, '[ACME] Ads');
-  assert.ok(x.cfg.text.includes('key = "alt+5"\ntype = "plugin_action"\ncommand = "anton.sidebar.jump-1"'));
+  assert.ok(x.cfg.text.includes('key = "alt+8"\ntype = "plugin_action"\ncommand = "anton.sidebar.jump-1"'));
   assert.ok(x.cfg.text.includes('description = "jump: [ACME] Ads"'));
   assert.ok(x.cfg.text.includes('annotate.capture'), 'other bindings stay');
   assert.ok(x.calls.some(c => c[0] === 'reload'));
   assert.equal(x.cfg.backups, 1);
-  assert.equal(keyTok(x, 'w1'), 'Alt+5');
+  assert.equal(keyTok(x, 'w1'), 'Alt+8');
   assert.equal(keyTok(x, 'w2'), undefined);
   const view = await x.d.handle('view', {});
   const unit = view.categories.flatMap(c => c.units).find(u => u.anchorId === 'w1');
-  assert.deepEqual(unit.keys, [{ key: 'alt+5', display: 'Alt+5', tabLabel: null }]);
+  assert.deepEqual(unit.keys, [{ key: 'alt+8', display: 'Alt+8', tabLabel: null }]);
   x.cleanup();
 });
 
@@ -77,7 +77,7 @@ test('a key taken by another plugin or by herdr is refused and not offered', asy
   await assert.rejects(x.d.handle('hotkey.set', { key: 'k', wsId: 'w1' }), /will not do/);
   const m = await x.d.handle('hotkey.menu', { wsId: 'w1' });
   assert.ok(!m.choices.some(c => c.key === 'f7'));
-  assert.equal(m.choices.length, 11); // 21 less Alt+1…4, Alt+0 and F1…4 (stars) and F7
+  assert.equal(m.choices.length, 9); // 21 less Alt+1…4, Alt+0 and F1…4 (stars), Alt+5 and F5 (Lavish) and F7
   assert.equal(x.cfg.writes, 0);
   x.cleanup();
 });
@@ -85,14 +85,14 @@ test('a key taken by another plugin or by herdr is refused and not offered', asy
 test('moving a key to another project keeps its slot; a new key for the same project replaces the old one', async () => {
   const x = setup({ workspaces: [ws('w1', 'a'), ws('w2', 'b')] });
   await x.d._test.cycle('t');
-  await x.d.handle('hotkey.set', { key: 'alt+5', wsId: 'w1' });
+  await x.d.handle('hotkey.set', { key: 'alt+8', wsId: 'w1' });
   await x.d.handle('hotkey.set', { key: 'alt+6', wsId: 'w2' });
   const moved = await x.d.handle('hotkey.set', { key: 'alt+6', wsId: 'w1' });
   assert.equal(moved.takenFrom, 'b');
-  assert.equal(moved.replaced, 'Alt+5');
+  assert.equal(moved.replaced, 'Alt+8');
   const hk = x.d._test.state().hotkeys;
   assert.deepEqual(hk.map(h => [h.slot, h.key, h.target.wsId]), [[2, 'alt+6', 'w1']]);
-  assert.ok(!x.cfg.text.includes('alt+5'));
+  assert.ok(!x.cfg.text.includes('alt+8'));
   assert.equal(keyTok(x, 'w1'), 'Alt+6');
   assert.equal(keyTok(x, 'w2'), undefined, 'the old token is cleared');
   const m = await x.d.handle('hotkey.menu', { wsId: 'w2' });
@@ -108,13 +108,13 @@ test('a key can point at one tab of a workspace', async () => {
   await x.d._test.cycle('t');
   const m = await x.d.handle('hotkey.menu', { wsId: 'w4' });
   assert.deepEqual(m.tabs, [{ tabId: 'w4:t1', label: 'main' }, { tabId: 'w4:t2', label: 'bots' }]);
-  await x.d.handle('hotkey.set', { key: 'f5', wsId: 'w4', tabId: 'w4:t2' });
+  await x.d.handle('hotkey.set', { key: 'f8', wsId: 'w4', tabId: 'w4:t2' });
   await x.d.handle('hotkey.set', { key: 'f6', wsId: 'w4' });
   const hk = x.d._test.state().hotkeys;
   assert.equal(hk.length, 2, 'the tab and the whole workspace are different targets');
-  assert.deepEqual(hk.find(h => h.key === 'f5').target, { wsId: 'w4', label: 'acme-cto', path: 'c:/p/w4', tabId: 'w4:t2', tabLabel: 'bots' });
+  assert.deepEqual(hk.find(h => h.key === 'f8').target, { wsId: 'w4', label: 'acme-cto', path: 'c:/p/w4', tabId: 'w4:t2', tabLabel: 'bots' });
   assert.ok(x.cfg.text.includes('description = "jump: acme-cto › bots"'));
-  assert.equal(keyTok(x, 'w4'), 'F5 F6');
+  assert.equal(keyTok(x, 'w4'), 'F6 F8');
   x.cleanup();
 });
 
@@ -131,25 +131,25 @@ test('when herdr rejects the new bindings, config.toml and the hotkeys stay as t
 test('clearing a key removes the binding and the token; without an install nothing is written', async () => {
   const x = setup({ workspaces: [ws('w1', 'a')] });
   await x.d._test.cycle('t');
-  await x.d.handle('hotkey.set', { key: 'alt+5', wsId: 'w1' });
-  await x.d.handle('hotkey.clear', { key: 'alt+5' });
+  await x.d.handle('hotkey.set', { key: 'alt+8', wsId: 'w1' });
+  await x.d.handle('hotkey.clear', { key: 'alt+8' });
   assert.ok(!x.cfg.text.includes('jump-'));
   assert.deepEqual(x.d._test.state().hotkeys, []);
   assert.equal(keyTok(x, 'w1'), undefined);
-  await assert.rejects(x.d.handle('hotkey.clear', { key: 'alt+5' }), /not bound/);
+  await assert.rejects(x.d.handle('hotkey.clear', { key: 'alt+8' }), /not bound/);
   x.cfg.installed = false;
-  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+5', wsId: 'w1' }), /not set up/);
+  await assert.rejects(x.d.handle('hotkey.set', { key: 'alt+8', wsId: 'w1' }), /not set up/);
   x.cleanup();
 });
 
 test('a renamed project keeps its key; uninstall clears the key token', async () => {
   const x = setup({ workspaces: [ws('w1', 'Ads')] });
   await x.d._test.cycle('t');
-  await x.d.handle('hotkey.set', { key: 'alt+5', wsId: 'w1' });
+  await x.d.handle('hotkey.set', { key: 'alt+8', wsId: 'w1' });
   x.workspaces[0].label = 'Ads 24/7';
   await x.d._test.cycle('t2');
   assert.equal(x.d._test.state().hotkeys[0].target.label, 'Ads 24/7');
-  assert.equal(keyTok(x, 'w1'), 'Alt+5');
+  assert.equal(keyTok(x, 'w1'), 'Alt+8');
   await x.d.handle('uninstall', {});
   assert.equal(keyTok(x, 'w1'), undefined);
   x.cleanup();

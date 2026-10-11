@@ -12,19 +12,22 @@ gives you a few fast ways to get where you need to be:
 - **Colour stars** — four kinds of stars (say: your own project and three jobs). `F1`…`F4` puts a
   star on the open project, `Alt+1`…`Alt+4` cycles through the projects with that star. A kind can
   stand at the top of the sidebar in one block, so its projects are next to each other.
-- **Jump hotkeys** — bind `Alt+5`, `F7` or any free combination to a project, or to one tab inside it.
+- **Jump hotkeys** — bind `Alt+6`, `F7` or any free combination to a project, or to one tab inside it.
   Hotkeys survive renames and herdr restarts.
 - **Worktree detach** — pull a git worktree out of its project's group into a category of its own,
   without stopping the agents running in it; put it back later.
 - **Duty agents** — an agent that works around the clock (ads watch, monitoring, a nightly loop)
   checks in with `herdr-duty`. If it stops waking up, gets stuck on a question or its pane disappears,
   the sidebar turns it red, herdr shows a notice, and (optionally) Telegram pings you.
+- **Lavish dot** — a violet `◉` after the star marks a project where an agent is waiting for your
+  answer on a [Lavish](https://github.com/kunchenguid/lavish-axi) review page (Windows only).
+  `Alt+5` goes through those projects one by one; `F5` takes the dot off a page that needs no answer.
 
 ```
 ━━ CLIENT WORK ━━
-● ★1 · acme-api · Alt+5
+● ★1 · acme-api · Alt+6
   main
-● ★2 · acme-web
+● ★2 ◉ acme-web
   feature/login
 ━━ AUTOMATIONS ━━
 ○ ads-watch · F7
@@ -122,6 +125,34 @@ by herdr, by another plugin or by the stars. A project with several tabs asks wh
 should open the project or one particular tab. The key shows next to the project's name in the
 sidebar. Under the hood the binding is a `[[keys.command]]` entry in `config.toml` that runs the
 plugin action `jump-N`; if herdr refuses a new binding, the file goes back as it was.
+
+## Lavish dot
+
+When an agent shows you a Lavish page it waits for your feedback with `lavish-axi poll <page>`. Every
+process started in a herdr pane inherits `HERDR_PANE_ID`, so the waiting process names its own pane,
+even when the page lives outside the project's folder. Every 30 seconds the helper finds those
+processes, reads that variable from them (a short PowerShell probe; Windows does not show another
+process's environment otherwise) and remembers each page with the pane that waited on it.
+
+The dot follows the page, not the waiting process: an agent that waits in rounds, or stops waiting
+and picks your answer up later, keeps its dot. It stays while the page is open in
+`~/.lavish-axi/state.json` (or `LAVISH_AXI_STATE_DIR`) and you have not answered it since the page
+last changed. Once you send the answer, or end the page, the dot goes on the next round, even if the
+agent keeps waiting in case you add something; it comes back when the agent rewrites the page. On
+macOS and Linux nothing is marked.
+
+Some pages need no answer: a report you have read. `F5` takes the dot off the open project at once
+(a notice names the pages); the page stays open and its link stays in the status line. The dot comes
+back when the agent changes the page, or when you press `F5` there again.
+
+`Alt+5` opens the next project down the sidebar with the dot (round to the first), on the tab where
+the agent waits.
+
+The helper keeps what it knows in `lavish-pages.json` in its session folder (under herdr's plugin
+state folder): the remembered pages, the panes with the dot, and `links` — for each pane, the
+addresses of every open page it waited on (the public address when lavish-axi has one), with
+`waiting: true` on those that want an answer; those come first, the newest first. A status line can
+read `links[$HERDR_PANE_ID]` to show the agent's open pages right in its window.
 
 ## Duty agents
 
