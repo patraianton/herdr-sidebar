@@ -148,11 +148,14 @@ function extraRows(rowsText) {
   return topLevelElements(rowsText).filter(e => !DEFAULT_ROWS.has(squash(e)));
 }
 
-function rowsBlock(extra) {
-  return [BEGIN, 'rows = [', ...STYLED_ROWS, ...extra.map(e => `  ${e},`), ']', END];
+// flat: herdr can list worktree copies on lines of their own, so the plugin
+// asks it to (then no copy has to be detached).
+const FLAT_LINE = 'group_worktrees = false';
+function rowsBlock(extra, flat) {
+  return [BEGIN, 'rows = [', ...STYLED_ROWS, ...extra.map(e => `  ${e},`), ']', ...(flat ? [FLAT_LINE] : []), END];
 }
 
-function patchConfig(text) {
+function patchConfig(text, { flat = false } = {}) {
   const { eol, lines } = splitLines(text);
   if (lines.some(l => isBegin(l) || l.trim() === KEYS_BEGIN)) throw new Error('already installed');
   let originalRows = null;
@@ -162,13 +165,13 @@ function patchConfig(text) {
     const r = findRows(lines, t);
     if (r) {
       originalRows = lines.slice(r.start, r.end + 1).join('\n');
-      lines.splice(r.start, r.end - r.start + 1, ...rowsBlock(extraRows(originalRows)));
+      lines.splice(r.start, r.end - r.start + 1, ...rowsBlock(extraRows(originalRows), flat));
     } else {
-      lines.splice(t + 1, 0, ...rowsBlock([]));
+      lines.splice(t + 1, 0, ...rowsBlock([], flat));
     }
   } else {
     const at = lines.length && lines[lines.length - 1] === '' ? lines.length - 1 : lines.length;
-    lines.splice(at, 0, '[ui.sidebar.spaces]', ...rowsBlock([]));
+    lines.splice(at, 0, '[ui.sidebar.spaces]', ...rowsBlock([], flat));
   }
   const at = lines.length && lines[lines.length - 1] === '' ? lines.length - 1 : lines.length;
   lines.splice(at, 0, ...keysBlock());
@@ -189,13 +192,13 @@ function jumpBindings(inner) {
 // Rewrite the installed blocks to this version: the rows (keeping rows the
 // person added inside the block) and the fixed key bindings (keeping the
 // hotkeys). Uninstall still restores the rows saved at install.
-function refreshConfig(text) {
+function refreshConfig(text, { flat = false } = {}) {
   const { eol, lines } = splitLines(text);
   const b = lines.findIndex(isBegin);
   const e = lines.findIndex(l => l.trim() === END);
   if (b < 0 || e <= b) throw new Error('not installed');
   const extra = topLevelElements(lines.slice(b + 1, e).join('\n')).filter(x => !OUR_ROWS.has(squash(x)));
-  lines.splice(b, e - b + 1, ...rowsBlock(extra));
+  lines.splice(b, e - b + 1, ...rowsBlock(extra, flat));
   const kb = lines.findIndex(l => l.trim() === KEYS_BEGIN);
   const ke = lines.findIndex(l => l.trim() === KEYS_END);
   if (kb >= 0 && ke > kb) {

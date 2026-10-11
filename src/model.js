@@ -14,7 +14,9 @@ function clone(x) { return JSON.parse(JSON.stringify(x)); }
 // A unit is what moves as one block in the sidebar: a worktree group (herdr
 // draws all members of one repo at the first member's position when the repo
 // has a non-linked member and at least two members) or a single workspace.
-function buildUnits(workspaces, paths, headerIds) {
+// opts.flat: herdr lists worktree copies on lines of their own
+// ([ui.sidebar.spaces] group_worktrees = false), so there are no groups.
+function buildUnits(workspaces, paths, headerIds, opts = {}) {
   const live = workspaces.filter(w => !headerIds.has(w.workspace_id));
   const byRepo = new Map();
   for (const w of live) {
@@ -25,7 +27,7 @@ function buildUnits(workspaces, paths, headerIds) {
   }
   const grouped = new Map();
   for (const [k, members] of byRepo) {
-    if (members.length >= 2 && members.some(m => !m.worktree.is_linked_worktree)) grouped.set(k, members);
+    if (!opts.flat && members.length >= 2 && members.some(m => !m.worktree.is_linked_worktree)) grouped.set(k, members);
   }
   const units = [];
   const unitOf = {};
@@ -165,6 +167,55 @@ function staleDetached(detached, workspaces, paths) {
     const inside = !!c && (p === c || p.startsWith(`${c}/`));
     return w.label !== d.name && !inside;
   }).map(([id]) => id);
+}
+
+// Flat sidebar: a worktree copy that appeared since the last cycle (prevIds)
+// stands right under its project, after the copies already there, in the
+// project's category. Copies the plugin detached earlier count as copies.
+function placeNewCopies(state, units, prevIds) {
+  if (!prevIds) return state;
+  let s = state;
+  for (const u of units.units) {
+    if (u.kind !== 'ws' || !u.repoKey || prevIds.has(u.anchorId)) continue;
+    if (s.categories.some(c => c.units.includes(u.key))) continue;
+    const sameRepo = k => {
+      if (k === u.key) return false;
+      const x = units.byKey[k];
+      if (x) return x.repoKey === u.repoKey;
+      const d = k.startsWith('ws:') && s.detached && s.detached[k.slice(3)];
+      return !!d && d.repoKey === u.repoKey;
+    };
+    const c = s.categories.find(x => x.units.some(sameRepo));
+    if (!c) continue;
+    if (s === state) s = clone(state);
+    const cat = s.categories.find(x => x.id === c.id);
+    let at = cat.units.findIndex(sameRepo);
+    while (at + 1 < cat.units.length && sameRepo(cat.units[at + 1])) at++;
+    cat.units.splice(at + 1, 0, u.key);
+    s.units[u.key] = { path: u.path, label: u.label, seen: s.lastCycleAt };
+  }
+  return s;
+}
+
+// Flat sidebar: "⎇ <project>" for every worktree copy (and for a second
+// workspace on the project's own folder). The project is the first workspace
+// on the repo's main checkout; with it closed, the repo's name.
+function projectLabels(workspaces) {
+  const out = {};
+  const main = new Map();
+  for (const w of workspaces) {
+    if (!w.worktree || !w.worktree.repo_key || w.worktree.is_linked_worktree) continue;
+    const rk = normPath(w.worktree.repo_key);
+    if (!main.has(rk)) main.set(rk, w);
+  }
+  for (const w of workspaces) {
+    if (!w.worktree || !w.worktree.repo_key) continue;
+    const p = main.get(normPath(w.worktree.repo_key));
+    if (p === w || (!w.worktree.is_linked_worktree && !p)) continue;
+    const label = p ? p.label : w.worktree.repo_name;
+    if (label) out[w.workspace_id] = label;
+  }
+  return out;
 }
 
 function categoryOf(state, key) {
@@ -324,6 +375,6 @@ function learnFromOrder(state, units, liveOrder, hintIds = [], pinned = new Set(
 
 module.exports = {
   NONE_ID, NONE_LABEL, headerLabel, isHeaderLabel,
-  buildUnits, reconcile, categoryOf, starBlocks, withBlocks, desiredOrder, sectionTokens, learnFromOrder, staleDetached,
+  buildUnits, reconcile, placeNewCopies, projectLabels, categoryOf, starBlocks, withBlocks, desiredOrder, sectionTokens, learnFromOrder, staleDetached,
   _internal: { displaySeq, lcs },
 };

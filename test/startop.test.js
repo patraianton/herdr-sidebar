@@ -89,7 +89,7 @@ test('learn: a project in a star block is not moved to another category by a dra
 
 // herdr in memory: panes move between workspaces, an emptied workspace closes,
 // worktreeOpen opens a fresh copy, moveBlock reorders.
-function setup(list, state, settings) {
+function setup(list, state, settings, opts = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-startop-'));
   const configDir = path.join(dir, 'config');
   fs.mkdirSync(configDir, { recursive: true });
@@ -161,6 +161,7 @@ function setup(list, state, settings) {
   const text = cp.patchConfig('').text;
   const keysConfig = {
     file: () => 'C:/fake/config.toml', read: () => text, write: () => {}, backup: () => {}, issues: () => [], defaults: () => '[keys]\n',
+    flat: () => !!opts.flat,
   };
   const d = createDaemon({
     socketPath: 'C:/fake/herdr.sock', dir, configDir, herdr, keysConfig,
@@ -332,4 +333,55 @@ test('a second workspace on the project\'s own folder, without the star, leaves 
   await assert.rejects(x.d.handle('unit.reattach', { wsId: 'w10' }), /cannot put it back/);
   assert.deepEqual(x.calls.slice(1), [['move', 'w3:p1', 'new_workspace']], 'now pricing goes up alone; AI-SDR stays where it is');
   x.cleanup();
+});
+
+// ---- herdr lists worktree copies on lines of their own ----
+
+test('flat sidebar: nothing is detached; copies stand on their own lines under the project, and a new copy joins them', async () => {
+  const list = [
+    ws('w1', 'api', wt('api', false, 'C:\p\api')),
+    ws('w2', 'cookie', wt('api', true, 'C:\wt\cookie')),
+    ws('w3', 'jam', wt('api', true, 'C:\wt\jam')),
+    ws('w4', 'blog'),
+  ];
+  const x = setup(list, {
+    categories: [{ id: 'c1', name: 'Code', units: ['repo:c:/p/api/.git', 'ws:w4'] }], nextId: 2,
+    stars: [{ kind: 1, target: { wsId: 'w1', label: 'api', path: 'c:/p/api' } }],
+  }, { starsOnTop: [1] }, { flat: true });
+  await x.d._test.cycle('t');
+  assert.deepEqual(x.calls, [], 'no pane moves');
+  assert.deepEqual(x.d._test.state().categories[0].units, ['ws:w1', 'ws:w2', 'ws:w3', 'ws:w4']);
+  assert.deepEqual(ids(list), ['w1', 'w2', 'w3', 'w4']);
+  assert.equal(tok(list, 'w1', 'section'), '━━ ★ MAIN ━━');
+  assert.equal(tok(list, 'w2', 'section'), '━━ CODE ━━');
+  assert.equal(tok(list, 'w2', 'project'), '⎇ api');
+  assert.equal(tok(list, 'w1', 'project'), undefined);
+
+  list.push(ws('w5', 'tea', wt('api', true, 'C:\wt\tea')));
+  await x.d._test.cycle('t');
+  assert.deepEqual(x.d._test.state().categories[0].units, ['ws:w1', 'ws:w2', 'ws:w3', 'ws:w5', 'ws:w4'], 'right after the copies already there');
+  assert.deepEqual(ids(list), ['w1', 'w2', 'w3', 'w5', 'w4']);
+  assert.equal(tok(list, 'w5', 'project'), '⎇ api');
+  assert.deepEqual(x.calls, []);
+  x.cleanup();
+});
+
+test('projectLabels: copies and a second workspace on the project folder show the project; with it closed, the repo name', () => {
+  const lone = wt('lone', true, 'C:\wt\tea');
+  lone.repo_name = 'lone';
+  assert.deepEqual(model.projectLabels([
+    ws('w1', 'team-ops', wt('ops', false, 'C:\p\ops')),
+    ws('w2', 'AI-SDR', wt('ops', false, 'C:\p\ops')),
+    ws('w3', 'pricing', wt('ops', true, 'C:\wt\pricing')),
+    ws('w4', 'tea', lone),
+    ws('w5', 'blog'),
+  ]), { w2: 'team-ops', w3: 'team-ops', w4: 'lone' });
+});
+
+test('flat: the block asks herdr for lines of their own, and a refresh without it takes the line out', () => {
+  const t1 = cp.patchConfig('', { flat: true }).text;
+  assert.ok(t1.includes(`]\ngroup_worktrees = false\n${cp.END}`));
+  const t2 = cp.refreshConfig(t1);
+  assert.ok(!t2.includes('group_worktrees'));
+  assert.equal(cp.refreshConfig(t1, { flat: true }), t1, 'the line is not taken for a row of the person');
 });

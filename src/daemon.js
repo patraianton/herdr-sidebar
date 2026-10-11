@@ -35,11 +35,20 @@ function defaultKeysConfig(configDir) {
   const bin = process.env.HERDR_BIN_PATH || 'herdr';
   const run = (args, env) => spawnSync(bin, args, { encoding: 'utf8', windowsHide: true, env: { ...process.env, ...env } });
   let defaults = null;
+  const keysFile = () => {
+    const inst = store.loadJson(path.join(configDir, 'install.json'), null);
+    return inst && inst.configFile && fs.existsSync(inst.configFile) ? inst.configFile : null;
+  };
+  const defaultsText = () => {
+    if (defaults === null) {
+      const r = run(['--default-config']);
+      if (r.error || r.status !== 0 || !/\[keys\]/.test(r.stdout || '')) throw new Error('Could not read herdr\'s default keys.');
+      defaults = r.stdout;
+    }
+    return defaults;
+  };
   return {
-    file: () => {
-      const inst = store.loadJson(path.join(configDir, 'install.json'), null);
-      return inst && inst.configFile && fs.existsSync(inst.configFile) ? inst.configFile : null;
-    },
+    file: keysFile,
     read: file => fs.readFileSync(file, 'utf8'),
     // whole file at once: a reader never sees half of it
     write: (file, text) => {
@@ -61,13 +70,15 @@ function defaultKeysConfig(configDir) {
       }
       return out.split(/\r?\n/).map(l => l.trim()).filter(l => l && !/^config: (ok|issues found)$/.test(l));
     },
-    defaults: () => {
-      if (defaults === null) {
-        const r = run(['--default-config']);
-        if (r.error || r.status !== 0 || !/\[keys\]/.test(r.stdout || '')) throw new Error('Could not read herdr\'s default keys.');
-        defaults = r.stdout;
-      }
-      return defaults;
+    defaults: defaultsText,
+    // herdr can list worktree copies on lines of their own and the plugin's
+    // block in config.toml asks for it (setup writes it when herdr can).
+    flat: () => {
+      const file = keysFile();
+      if (!file) return false;
+      let can = false;
+      try { can = /group_worktrees/.test(defaultsText()); } catch {}
+      return can && /^\s*group_worktrees\s*=\s*false\b/m.test(fs.readFileSync(file, 'utf8'));
     },
   };
 }
@@ -206,6 +217,20 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     return true;
   }
 
+  // herdr lists worktree copies on lines of their own: nothing has to be
+  // detached, a copy stands where it belongs by itself. Asked again every
+  // five minutes, so a switch of herdr build is followed.
+  let flatSeen = { at: -Infinity, on: false };
+  function flatMode() {
+    const now = clock();
+    if (now - flatSeen.at < 5 * 60000) return flatSeen.on;
+    let on = false;
+    try { on = !!(keysConfig.flat && keysConfig.flat()); } catch {}
+    if (on !== flatSeen.on) log(on ? 'herdr lists worktree copies on lines of their own: nothing is detached any more' : 'herdr groups worktree copies again');
+    flatSeen = { at: now, on };
+    return on;
+  }
+
   async function placeStarredCopies(snap, units) {
     const top = new Set(onTopKinds());
     const kinds = starKinds(snap);
@@ -251,13 +276,18 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     let h = liveHeaders(snap);
     if (h.ids.size && await closeOldHeaders(snap, h)) { snap = await snapshot(); h = liveHeaders(snap); }
     for (const [cid, wsId] of Object.entries(state.headers)) if (!snap.byId.has(wsId)) delete state.headers[cid];
-    let units = model.buildUnits(snap.workspaces, snap.paths, h.ids); // a title that would not close is not a project
-    if (await placeStarredCopies(snap, units)) {
+    const flat = flatMode();
+    let units = model.buildUnits(snap.workspaces, snap.paths, h.ids, { flat }); // a title that would not close is not a project
+    if (!flat && await placeStarredCopies(snap, units)) {
       snap = await snapshot();
       h = liveHeaders(snap);
-      units = model.buildUnits(snap.workspaces, snap.paths, h.ids);
+      units = model.buildUnits(snap.workspaces, snap.paths, h.ids, { flat });
     }
     state = model.reconcile(state, units, now, { continuous: !continuityBroken });
+    if (flat) {
+      const prev = !continuityBroken && last.snap ? new Set(last.snap.workspaces.map(w => w.workspace_id)) : null;
+      state = model.placeNewCopies(state, units, prev);
+    }
     const rs = hotkeys.refreshTargets(state.stars || [], snap.workspaces, snap.paths, !continuityBroken);
     if (rs.changed) { state.stars = rs.hotkeys; log('stars followed a rename or a new id'); }
     const kinds = starKinds(snap);
@@ -313,6 +343,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       want.set(wsId, t);
     };
     for (const [wsId, title] of Object.entries(last.sections)) put(wsId, 'section', title);
+    if (flatMode()) for (const [wsId, label] of Object.entries(model.projectLabels(snap.workspaces))) put(wsId, 'project', `⎇ ${label}`);
     for (const [wsId, d] of Object.entries(state.detached)) put(wsId, 'project', `⎇ ${d.parentLabel}`);
     for (const d of Object.values(state.duty)) if (d.wsId) put(d.wsId, 'duty', duty.dutyToken(d, clock()));
     for (const [wsId, list] of keysByWs()) put(wsId, 'key', list.map(k => k.display).join(' '));
