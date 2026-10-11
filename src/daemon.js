@@ -216,7 +216,8 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     for (const u of units.units) {
       if (u.kind !== 'group') continue;
       const own = place(u.anchorId);
-      for (const ch of u.children) {
+      // A second workspace on the project's own folder is drawn in the group too.
+      for (const ch of [...u.extraParents, ...u.children]) {
         if (place(ch.wsId) === own || !autoAllowed(ch.checkout, now)) continue;
         try {
           await ops.detach(herdr, state, { wsId: ch.wsId, auto: true });
@@ -645,8 +646,8 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
         const at = x => (top.includes(x) ? x : 0);
         if (p && at(k) !== at(pk)) {
           throw new Error(at(k)
-            ? `It stands at the top because of its star ★${k}. Take the star off and it goes back into "${d.parentLabel}" by itself.`
-            : `"${d.parentLabel}" stands at the top because of its star ★${pk}, and this copy has no such star. Put ★${pk} on the copy too, or take it off the project, and it goes back by itself.`);
+            ? `It stands at the top because of its star ★${k}. Take the star off first, then w puts it back into "${d.parentLabel}".`
+            : `"${d.parentLabel}" stands at the top because of its star ★${pk}, and this copy has no such star. Put ★${pk} on the copy too, or take it off the project, then w puts it back.`);
         }
       }
       return ops.reattach(herdr, state, { wsId });

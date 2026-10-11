@@ -45,9 +45,11 @@ async function detach(herdr, state, { wsId, catId, auto }) {
   const workspaces = await herdr.listWorkspaces();
   const ws = workspaces.find(w => w.workspace_id === wsId);
   if (!ws) throw new Error('This workspace is gone.');
-  if (!ws.worktree || !ws.worktree.is_linked_worktree) throw new Error('This is not a worktree copy of a project, there is nothing to detach.');
-  const rk = normPath(ws.worktree.repo_key);
-  const parent = workspaces.find(w => w.worktree && normPath(w.worktree.repo_key) === rk && !w.worktree.is_linked_worktree);
+  const rk = ws.worktree && ws.worktree.repo_key ? normPath(ws.worktree.repo_key) : null;
+  const parent = rk && workspaces.find(w => w.workspace_id !== wsId && w.worktree && normPath(w.worktree.repo_key) === rk && !w.worktree.is_linked_worktree);
+  // herdr also draws a second workspace on the project's own folder inside the group.
+  const twin = !!rk && !ws.worktree.is_linked_worktree && !!parent;
+  if (!rk || (!ws.worktree.is_linked_worktree && !twin)) throw new Error('This is not a worktree copy of a project, there is nothing to detach.');
   const panes = await panesInTabOrder(herdr, wsId);
   if (!panes.length) throw new Error('The workspace has no panes.');
   await unzoomTabs(herdr, panes);
@@ -67,6 +69,7 @@ async function detach(herdr, state, { wsId, catId, auto }) {
     name: ws.label,
     at: Date.now(),
     ...(auto ? { auto: true } : {}),
+    ...(twin ? { twin: true } : {}),
   };
   const key = `ws:${newId}`;
   // The project's place: its group, or the project alone once its last copy left.
@@ -101,6 +104,7 @@ async function detach(herdr, state, { wsId, catId, auto }) {
 async function reattach(herdr, state, { wsId }) {
   const d = state.detached[wsId];
   if (!d) throw new Error('This workspace was not detached by the plugin.');
+  if (d.twin) throw new Error(`This was a second workspace on the folder of "${d.parentLabel}" itself. herdr cannot put it back into the group; it keeps working where it is.`);
   const workspaces = await herdr.listWorkspaces();
   if (!workspaces.some(w => w.workspace_id === wsId)) { delete state.detached[wsId]; throw new Error('The detached workspace is gone.'); }
   const parent = workspaces.find(w => w.worktree && normPath(w.worktree.repo_key) === d.repoKey && !w.worktree.is_linked_worktree);

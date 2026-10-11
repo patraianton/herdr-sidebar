@@ -303,3 +303,33 @@ test('a copy the helper detached stays apart while its project is closed', async
   assert.equal(tok(list, 'w5', 'project'), '⎇ api');
   x.cleanup();
 });
+
+test('a second workspace on the project\'s own folder, without the star, leaves the starred group and cannot be put back', async () => {
+  const list = [
+    ws('w1', 'team-ops', wt('ops', false, 'C:\p\ops')),
+    ws('w2', 'AI-SDR', wt('ops', false, 'C:\p\ops')),
+    ws('w3', 'pricing', wt('ops', true, 'C:\wt\pricing')),
+    ws('w4', 'blog'),
+  ];
+  const x = setup(list, {
+    categories: [{ id: 'c1', name: 'Code', units: ['repo:c:/p/ops/.git', 'ws:w4'] }], nextId: 2,
+    stars: [
+      { kind: 2, target: { wsId: 'w1', label: 'team-ops', path: 'c:/p/ops' } },
+      { kind: 2, target: { wsId: 'w3', label: 'pricing', path: 'c:/wt/pricing' } },
+    ],
+  }, { starsOnTop: [2] });
+  await x.d._test.cycle('t');
+  const st = x.d._test.state();
+  assert.deepEqual(x.calls, [['move', 'w2:p1', 'new_workspace']], 'only AI-SDR moves; pricing has the star and stays in the group');
+  assert.deepEqual(st.detached.w10.twin, true);
+  assert.equal(st.detached.w10.parentLabel, 'team-ops');
+  assert.deepEqual(ids(list), ['w1', 'w3', 'w10', 'w4']);
+  assert.equal(tok(list, 'w1', 'section'), '━━ ★ SECOND ━━');
+  assert.equal(tok(list, 'w10', 'section'), '━━ CODE ━━');
+  assert.equal(tok(list, 'w10', 'project'), '⎇ team-ops');
+
+  await x.d.handle('star.set', { wsId: 'w1', kind: 0 });
+  await assert.rejects(x.d.handle('unit.reattach', { wsId: 'w10' }), /cannot put it back/);
+  assert.deepEqual(x.calls.slice(1), [['move', 'w3:p1', 'new_workspace']], 'now pricing goes up alone; AI-SDR stays where it is');
+  x.cleanup();
+});

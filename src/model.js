@@ -48,7 +48,7 @@ function buildUnits(workspaces, paths, headerIds) {
         linked: false,
         children: kids.map(m => ({ wsId: m.workspace_id, label: m.label, checkout: m.worktree.checkout_path })),
         members: [...parents, ...kids].map(m => ({ wsId: m.workspace_id, label: m.label, path: normPath(m.worktree.checkout_path) })),
-        extraParents: parents.slice(1).map(m => ({ wsId: m.workspace_id, label: m.label })),
+        extraParents: parents.slice(1).map(m => ({ wsId: m.workspace_id, label: m.label, checkout: m.worktree.checkout_path })),
       };
     } else {
       const p = w.worktree && w.worktree.checkout_path ? w.worktree.checkout_path : paths[id];
