@@ -296,6 +296,11 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     // helper's own reorders move many, so they are not hints.
     const hints = dragHints.filter(ids => new Set(ids.map(id => units.unitOf[id])).size === 1).flat();
     dragHints = [];
+    const inBlock = model.learnBlockOrder(state, units, snap.order, blocks());
+    if (inBlock.moved.length) {
+      log('moved by hand inside a star block:', inBlock.moved.join(' '));
+      state = inBlock.state;
+    }
     const learned = model.learnFromOrder(state, units, snap.order, hints, blocks().pinned);
     if (learned.moved.length) {
       log('moved by hand:', learned.moved.join(' '));

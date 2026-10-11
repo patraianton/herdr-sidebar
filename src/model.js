@@ -226,8 +226,9 @@ function categoryOf(state, key) {
 // Stars on top: a project whose star kind is in onTop leaves its category in
 // the sidebar and stands in one block per kind above every category (the
 // category stays its home in the window). A worktree group counts by the star
-// of its main project. Inside a block the order is that of the categories,
-// then the uncategorized ones in herdr's order. Only the first block has a
+// of its main project. Inside a block the order is the person's
+// (state.starOrder[kind], learned from a drag inside the block); the ones not
+// in it follow in the order of the categories, then herdr's order. Only the first block has a
 // title: the blocks after it follow on under it, told apart by the colour of
 // their stars. kindOf: workspace id -> kind; nameOf: kind -> block name.
 // Returns { cats, pinned: Set of unit keys }.
@@ -242,8 +243,10 @@ function starBlocks(state, units, kindOf, onTop, nameOf) {
   for (const c of state.categories) c.units.forEach(add);
   for (const u of units.units) add(u.key);
   for (const kind of kinds) {
-    const keys = seq.filter(k => kindOf(units.byKey[k].anchorId) === kind);
+    let keys = seq.filter(k => kindOf(units.byKey[k].anchorId) === kind);
     if (!keys.length) continue;
+    const own = new Map(((state.starOrder || {})[kind] || []).map((k, i) => [k, i]));
+    keys = [...keys.filter(k => own.has(k)).sort((a, b) => own.get(a) - own.get(b)), ...keys.filter(k => !own.has(k))];
     keys.forEach(k => pinned.add(k));
     cats.push({ id: `star${kind}`, name: `★ ${nameOf(kind)}`, units: keys, ...(cats.length ? { untitled: true } : {}) });
   }
@@ -334,6 +337,34 @@ function lcs(a, b) {
 // project, so a drop right above that project lands under the previous
 // category); dropped at the very top, it joins the category below. Projects
 // in the star blocks (pinned) are left out: they go back up whatever happens.
+// A drag inside a star block: the block keeps the order herdr shows now
+// (state.starOrder[kind]). A drag out of a block changes nothing: the star
+// decides where the project stands.
+function learnBlockOrder(state, units, liveOrder, blocks) {
+  const nothing = { state, moved: [] };
+  if (!state.lastApplied || !blocks.cats.length) return nothing;
+  const live = displaySeq(liveOrder, units);
+  const prev = displaySeq(state.lastApplied, units);
+  let s = state;
+  const moved = [];
+  for (const c of blocks.cats) {
+    const inBlock = new Set(c.units);
+    const now = live.filter(k => inBlock.has(k));
+    const before = prev.filter(k => inBlock.has(k));
+    const inNow = new Set(now);
+    const inBefore = new Set(before);
+    const a = before.filter(k => inNow.has(k));
+    const b = now.filter(k => inBefore.has(k));
+    if (a.join('\n') === b.join('\n')) continue;
+    const kind = Number(c.id.slice('star'.length));
+    if (s === state) s = clone(state);
+    s.starOrder = { ...(s.starOrder || {}), [kind]: [...now, ...c.units.filter(k => !inNow.has(k))] };
+    const keep = lcs(a, b);
+    moved.push(...b.filter(k => !keep.has(k)));
+  }
+  return moved.length ? { state: s, moved } : nothing;
+}
+
 function learnFromOrder(state, units, liveOrder, hintIds = [], pinned = new Set()) {
   const nothing = { state, moved: [] };
   if (!state.lastApplied || !state.categories.length) return nothing;
@@ -375,6 +406,6 @@ function learnFromOrder(state, units, liveOrder, hintIds = [], pinned = new Set(
 
 module.exports = {
   NONE_ID, NONE_LABEL, headerLabel, isHeaderLabel,
-  buildUnits, reconcile, placeNewCopies, projectLabels, categoryOf, starBlocks, withBlocks, desiredOrder, sectionTokens, learnFromOrder, staleDetached,
+  buildUnits, reconcile, placeNewCopies, projectLabels, categoryOf, starBlocks, withBlocks, desiredOrder, sectionTokens, learnBlockOrder, learnFromOrder, staleDetached,
   _internal: { displaySeq, lcs },
 };

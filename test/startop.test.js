@@ -385,3 +385,27 @@ test('flat: the block asks herdr for lines of their own, and a refresh without i
   assert.ok(!t2.includes('group_worktrees'));
   assert.equal(cp.refreshConfig(t1, { flat: true }), t1, 'the line is not taken for a row of the person');
 });
+
+test("a drag inside a star block stays: the block keeps the person's order; a newly starred one comes last", async () => {
+  const list = [ws('w1', 'alpha'), ws('w2', 'beta'), ws('w3', 'gamma'), ws('w4', 'delta')];
+  const star = (id, label) => ({ kind: 1, target: { wsId: id, label, path: `c:/p/${label}` } });
+  const x = setup(list, {
+    categories: [{ id: 'c1', name: 'Work', units: ['ws:w1', 'ws:w2', 'ws:w3', 'ws:w4'] }], nextId: 2,
+    stars: [star('w1', 'alpha'), star('w2', 'beta'), star('w3', 'gamma')],
+  }, { starsOnTop: [1] });
+  await x.d._test.cycle('t');
+  assert.deepEqual(ids(list), ['w1', 'w2', 'w3', 'w4']);
+  list.unshift(list.splice(2, 1)[0]); // the person drags gamma to the top of the block
+  await x.d._test.cycle('t');
+  assert.deepEqual(ids(list), ['w3', 'w1', 'w2', 'w4'], 'not put back');
+  assert.deepEqual(x.d._test.state().starOrder, { 1: ['ws:w3', 'ws:w1', 'ws:w2'] });
+  assert.equal(tok(list, 'w3', 'section'), '━━ ★ MAIN ━━');
+  assert.deepEqual(x.d._test.state().categories[0].units, ['ws:w1', 'ws:w2', 'ws:w3', 'ws:w4'], 'the category order is not touched');
+
+  await x.d.handle('star.set', { wsId: 'w4', kind: 1 });
+  assert.deepEqual(ids(list), ['w3', 'w1', 'w2', 'w4']);
+  list.splice(1, 0, list.splice(3, 1)[0]); // delta between gamma and alpha
+  await x.d._test.cycle('t');
+  assert.deepEqual(ids(list), ['w3', 'w4', 'w1', 'w2']);
+  x.cleanup();
+});
