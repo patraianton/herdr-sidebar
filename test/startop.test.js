@@ -48,7 +48,7 @@ test('starBlocks: one block per kind on top, in the order of the categories, the
   const { b } = blocksWorld([2, 1]);
   assert.deepEqual(b.cats, [
     { id: 'star1', name: '★ Main', units: [AP, 'ws:w3', 'ws:w5'] },
-    { id: 'star2', name: '★ Second', units: ['ws:w6'] },
+    { id: 'star2', name: '★ Second', units: ['ws:w6'], untitled: true },
   ]);
   assert.deepEqual([...b.pinned].sort(), [AP, 'ws:w3', 'ws:w5', 'ws:w6'].sort());
 });
@@ -62,12 +62,16 @@ test('starBlocks: kinds not on top stay in their categories; nothing on top chan
   assert.deepEqual(s.categories[1].units, ['ws:w3', 'ws:w6'], 'the categories themselves are not changed');
 });
 
-test('the blocks stand above the categories, with titles; a category left empty has none', () => {
+test('the blocks stand above the categories; only the first has a title; a category left empty has none', () => {
   const { s, u, b } = blocksWorld([1, 2]);
   const shown = model.withBlocks(s, b);
   const order = model.desiredOrder(shown, u, ['w1', 'w2', 'w3', 'w4', 'w5', 'w6']);
   assert.deepEqual(order, ['w2', 'w4', 'w3', 'w5', 'w6', 'w1']);
-  assert.deepEqual(model.sectionTokens(shown, u, order), { w2: '━━ ★ MAIN ━━', w6: '━━ ★ SECOND ━━', w1: '━━ A ━━' });
+  assert.deepEqual(model.sectionTokens(shown, u, order), { w2: '━━ ★ MAIN ━━', w1: '━━ A ━━' });
+  const second = blocksWorld([2]);
+  const alone = model.withBlocks(second.s, second.b);
+  assert.equal(model.sectionTokens(alone, second.u, model.desiredOrder(alone, second.u, ['w1', 'w2', 'w3', 'w4', 'w5', 'w6'])).w6,
+    '━━ ★ SECOND ━━', 'the first block shown has the title, whatever its kind');
 });
 
 test('learn: a project in a star block is not moved to another category by a drag', () => {

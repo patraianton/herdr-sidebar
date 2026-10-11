@@ -109,7 +109,8 @@ Workspaces you never put into a category stay at the bottom, under `NO CATEGORY`
 
 In the window press `s`, then **Stars at the top of the sidebar…**, and pick a kind. Every project
 with a star of that kind leaves its category in the sidebar and stands in a block at the very top,
-under its own title (`━━ ★ MY PROJECT ━━`); each kind turned on gets a block of its own. Take the
+under the title `━━ ★ MY PROJECT ━━`; each kind turned on gets a block of its own, one under
+the other with no title between them — the colour of the stars tells them apart. Take the
 star off and the project goes back to its place in its category. In the window it stays in its
 category all along, so that is where it returns.
 

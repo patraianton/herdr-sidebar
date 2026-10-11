@@ -176,8 +176,10 @@ function categoryOf(state, key) {
 // the sidebar and stands in one block per kind above every category (the
 // category stays its home in the window). A worktree group counts by the star
 // of its main project. Inside a block the order is that of the categories,
-// then the uncategorized ones in herdr's order. kindOf: workspace id -> kind;
-// nameOf: kind -> block name. Returns { cats, pinned: Set of unit keys }.
+// then the uncategorized ones in herdr's order. Only the first block has a
+// title: the blocks after it follow on under it, told apart by the colour of
+// their stars. kindOf: workspace id -> kind; nameOf: kind -> block name.
+// Returns { cats, pinned: Set of unit keys }.
 function starBlocks(state, units, kindOf, onTop, nameOf) {
   const cats = [];
   const pinned = new Set();
@@ -192,7 +194,7 @@ function starBlocks(state, units, kindOf, onTop, nameOf) {
     const keys = seq.filter(k => kindOf(units.byKey[k].anchorId) === kind);
     if (!keys.length) continue;
     keys.forEach(k => pinned.add(k));
-    cats.push({ id: `star${kind}`, name: `★ ${nameOf(kind)}`, units: keys });
+    cats.push({ id: `star${kind}`, name: `★ ${nameOf(kind)}`, units: keys, ...(cats.length ? { untitled: true } : {}) });
   }
   return { cats, pinned };
 }
@@ -235,7 +237,8 @@ function displaySeq(order, units) {
 
 // herdr has no title rows of its own: a category title is a $section token
 // drawn as an extra line on top of the first project of the category (on the
-// parent of a worktree group). Returns { wsId: title }.
+// parent of a worktree group). An untitled category (a star block after the
+// first) gets none. Returns { wsId: title }.
 function sectionTokens(state, units, order) {
   const out = {};
   if (!state.categories.length) return out;
@@ -247,6 +250,7 @@ function sectionTokens(state, units, order) {
     const cid = c ? c.id : NONE_ID;
     if (done.has(cid)) continue;
     done.add(cid);
+    if (c && c.untitled) continue;
     out[units.byKey[key].anchorId] = c ? headerLabel(c.name) : NONE_LABEL;
   }
   return out;
