@@ -24,11 +24,11 @@ gives you a few fast ways to get where you need to be:
   `Alt+5` goes through those projects one by one; `F5` takes the dot off a page that needs no answer.
 
 ```
-━━ CLIENT WORK ━━
+━━ ★ MY PROJECT ━━
 ● ★1 · acme-api · Alt+6
-  main
+━━ CLIENT WORK ━━
 ● ★2 ◉ acme-web
-  feature/login
+○ login-form ⎇ acme-api
 ━━ AUTOMATIONS ━━
 ○ ads-watch · F7
   ◆ on duty 1d9h · every 30m
@@ -37,6 +37,10 @@ gives you a few fast ways to get where you need to be:
 ━━ NO CATEGORY ━━
 ○ scratch
 ```
+
+A project takes one line: the branch line herdr draws by default is left out, and a worktree copy
+that stands apart from its project shows the project after its name (`⎇ acme-api`). Only a duty
+agent gets a second line.
 
 Everything is managed from one popup window (`prefix`, then `Shift+S`) that works with the
 keyboard and the mouse.
@@ -109,14 +113,19 @@ under its own title (`━━ ★ MY PROJECT ━━`); each kind turned on gets a
 star off and the project goes back to its place in its category. In the window it stays in its
 category all along, so that is where it returns.
 
-herdr draws the worktree copies of a project inside the project, and a copy cannot leave that group
-by itself. So:
+Only what has the star goes up. herdr draws the worktree copies of a project inside the project,
+and a copy cannot leave that group by itself, so when a copy and its project belong in different
+places the copy is detached (as with `w`: the panes and agents in it keep running) and stands on its
+own, marked `⎇ <project>` after its name:
 
-- a project with the star goes up together with all its copies;
-- a copy with the star whose project does not go to the same block is detached for it (as with `w`:
-  the panes and agents in it keep running) and stands in the block on its own, marked `⎇ <project>`;
-  take the star off and it is put back into its project. While its star keeps it up there, `w` will
-  not put it back. Copies you detached yourself are never touched.
+- a project with the star goes up alone; its copies without that star stay in the category, right
+  under the project's place, in their order;
+- a copy with the star goes up on its own when its project does not go to the same block;
+- a copy with the same star as its project goes up with it, inside the group.
+
+When the two belong together again (a star taken off, or put on the other one too), the copy is put
+back into its project — as long as the project is open. Until then `w` will not put it back. Copies
+you detached yourself are never touched.
 
 ## Jump hotkeys
 

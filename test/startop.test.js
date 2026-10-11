@@ -1,7 +1,8 @@
 'use strict';
 // Stars on top: the projects with a star of a chosen kind stand in a block of
-// their own above every category; a worktree copy is detached for it and put
-// back when its star comes off.
+// their own above every category; a worktree copy that stands apart from its
+// project (its own star, or the project's star without it) is detached and put
+// back when the two stand together again.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -244,5 +245,55 @@ test('a copy with the same star as its project goes up with the project; a copy 
   assert.deepEqual(ids(list), ['w1', 'w2', 'w3', 'w5']);
   assert.equal(tok(list, 'w1', 'section'), '━━ ★ MAIN ━━');
   assert.ok(x.d._test.state().detached.w5, 'the copy detached by hand stays apart');
+  x.cleanup();
+});
+
+test('a project with the star goes up alone: its copies without that star stay in the category under its place, in their order', async () => {
+  const list = [
+    ws('w1', 'api', wt('api', false, 'C:\p\api')),
+    ws('w2', 'cookie', wt('api', true, 'C:\wt\cookie')),
+    ws('w3', 'jam', wt('api', true, 'C:\wt\jam')),
+    ws('w4', 'blog'),
+    ws('w5', 'notes'),
+  ];
+  const x = setup(list, {
+    categories: [{ id: 'c1', name: 'Code', units: ['ws:w5', 'repo:c:/p/api/.git', 'ws:w4'] }], nextId: 2,
+    stars: [{ kind: 1, target: { wsId: 'w1', label: 'api', path: 'c:/p/api' } }],
+  }, { starsOnTop: [1] });
+  await x.d._test.cycle('t');
+  const st = x.d._test.state();
+  assert.deepEqual(x.calls, [['move', 'w2:p1', 'new_workspace'], ['move', 'w3:p1', 'new_workspace']]);
+  assert.deepEqual(Object.keys(st.detached).sort(), ['w10', 'w11']);
+  assert.ok(st.detached.w10.auto && st.detached.w11.auto);
+  assert.deepEqual(st.categories[0].units, ['ws:w5', 'ws:w1', 'ws:w10', 'ws:w11', 'ws:w4'], 'the copies keep the project\'s place, cookie before jam');
+  assert.deepEqual(ids(list), ['w1', 'w5', 'w10', 'w11', 'w4']);
+  assert.equal(tok(list, 'w1', 'section'), '━━ ★ MAIN ━━');
+  assert.equal(tok(list, 'w5', 'section'), '━━ CODE ━━');
+  assert.equal(tok(list, 'w10', 'project'), '⎇ api');
+  assert.equal(tok(list, 'w1', 'project'), undefined);
+  await assert.rejects(x.d.handle('unit.reattach', { wsId: 'w10' }), /"api" stands at the top because of its star ★1/);
+
+  await x.d.handle('star.set', { wsId: 'w1', kind: 0 });
+  assert.deepEqual(x.calls.slice(2), [
+    ['open', 'w1', 'C:\wt\cookie'], ['move', 'w2:p1', 'new_tab'],
+    ['open', 'w1', 'C:\wt\jam'], ['move', 'w3:p1', 'new_tab'],
+  ]);
+  assert.deepEqual(x.d._test.state().detached, {});
+  assert.deepEqual(x.d._test.state().categories[0].units, ['ws:w5', 'repo:c:/p/api/.git', 'ws:w4'], 'the group is whole again in its place');
+  assert.deepEqual(ids(list), ['w5', 'w1', 'w12', 'w13', 'w4']);
+  assert.equal(tok(list, 'w5', 'section'), '━━ CODE ━━');
+  x.cleanup();
+});
+
+test('a copy the helper detached stays apart while its project is closed', async () => {
+  const list = [ws('w5', 'jam'), ws('w6', 'blog')];
+  const x = setup(list, {
+    categories: [{ id: 'c1', name: 'Code', units: ['ws:w5', 'ws:w6'] }], nextId: 2,
+    detached: { w5: { checkout: 'C:\wt\jam', repoKey: 'c:/p/api/.git', repoRoot: 'C:\p\api', parentLabel: 'api', name: 'jam', at: 1, auto: true } },
+  }, { starsOnTop: [1] });
+  await x.d._test.cycle('t');
+  assert.deepEqual(x.calls, [], 'nothing to put it back into');
+  assert.ok(x.d._test.state().detached.w5);
+  assert.equal(tok(list, 'w5', 'project'), '⎇ api');
   x.cleanup();
 });

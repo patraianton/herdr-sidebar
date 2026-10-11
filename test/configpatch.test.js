@@ -26,10 +26,22 @@ const SAMPLE = [
   '',
 ].join('\r\n');
 
-// The name row: a star coloured by its kind, the violet Lavish dot, the name, the hotkeys.
+// The name row: a star coloured by its kind, the violet Lavish dot, the name, the project of a
+// detached copy, the hotkeys. A project is one line: no branch row, no project row.
 const STARS = '{ token = "$star", rules = [{ starts_with = "★1", fg = "#fabd2f" }, { starts_with = "★2", fg = "#8ec07c" }, '
   + '{ starts_with = "★3", fg = "#d3869b" }, { starts_with = "★4", fg = "#fe8019" }] }';
-const NAME_ROW = `["state_icon", ${STARS}, { token = "$lavish", fg = "#a371f7" }, "workspace", { token = "$key", fg = "#83a598" }]`;
+const NAME_ROW = `["state_icon", ${STARS}, { token = "$lavish", fg = "#a371f7" }, "workspace", { token = "$project", dim = true }, { token = "$key", fg = "#83a598" }]`;
+const LAVISH_ROW = `["state_icon", ${STARS}, { token = "$lavish", fg = "#a371f7" }, "workspace", { token = "$key", fg = "#83a598" }]`;
+
+test('refresh makes a project one line: the branch row and the project row go, the project stands after the name', () => {
+  const old = cp.patchConfig(SAMPLE).text.replace(NAME_ROW, `${LAVISH_ROW},\r\n  ["branch", "git_status"],\r\n  [{ token = "$project", dim = true }]`);
+  assert.ok(old.includes('["branch", "git_status"]') && old.includes(LAVISH_ROW));
+  const next = cp.refreshConfig(old);
+  assert.ok(next.includes(NAME_ROW));
+  assert.ok(!next.includes(LAVISH_ROW) && !next.includes('["branch", "git_status"]') && !next.includes('[{ token = "$project", dim = true }]'));
+  assert.ok(next.includes('  ["$kran"],'), 'a row added by someone else stays');
+  assert.equal(cp.refreshConfig(next), next, 'a second refresh changes nothing');
+});
 const STAR_ROW_V2 = `["state_icon", ${STARS}, "workspace", { token = "$key", fg = "#83a598" }]`;
 const STAR_ROW_V1 = '["state_icon", { token = "$star", fg = "#fabd2f" }, "workspace", { token = "$key", fg = "#83a598" }]';
 
@@ -51,10 +63,10 @@ test('patch replaces rows, keeps $kran and other content, adds the key binding',
   assert.ok(t.includes(cp.BEGIN) && t.includes(cp.END));
   assert.ok(t.includes(`  [{ token = "$section", fg = "#fabd2f", bold = true }],\r\n  ${NAME_ROW},`), 'title row first, then the name row with its star and hotkey');
   assert.ok(!t.includes('starts_with = "━━"'), 'no title-workspace styling');
-  assert.ok(t.includes('[{ token = "$project", dim = true }],'));
+  assert.ok(!t.includes('[{ token = "$project", dim = true }],'), 'the project is on the name row, not a row of its own');
   assert.ok(t.includes('token = "$duty"'));
   assert.ok(t.includes('  ["$kran"],'));
-  assert.equal(t.match(/\["branch", "git_status"\]/g).length, 1);
+  assert.equal(t.match(/\["branch", "git_status"\]/g), null, 'no branch row: a project is one line');
   assert.ok(t.includes('key = "prefix+shift+s"'));
   assert.ok(t.includes('command = "anton.sidebar.open"'));
   assert.ok(t.includes('# comment kept') && t.includes('[update]') && t.includes('annotate.capture'));
@@ -127,7 +139,8 @@ test('refresh rewrites an older installed block to the current rows and keeps ex
   assert.ok(!t.includes('starts_with = "━━"'));
   assert.equal(t.split('["$kran"]').length - 1, 1);
   assert.equal(t.split('token = "$duty"').length - 1, 1);
-  assert.equal(t.split('["branch", "git_status"]').length - 1, 1);
+  assert.equal(t.split('["branch", "git_status"]').length - 1, 0);
+  assert.ok(t.includes(NAME_ROW));
   assert.ok(t.includes('[update]\r\nchannel = "stable"'), 'keeps CRLF and the rest');
   assert.equal(cp.refreshConfig(t), t, 'a second refresh changes nothing');
 });

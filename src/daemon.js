@@ -189,11 +189,14 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     return Array.isArray(v) ? [...new Set(v.map(Number))].filter(k => stars.KINDS.some(x => x.kind === k)).sort() : [];
   };
 
-  // A worktree copy moves with its project. When its star sends it up and its
-  // project does not go to the same block, the copy is detached (panes and
-  // agents keep working) so it can stand there; when that is no longer so, it
-  // is put back. Copies detached by hand (w) are left alone. At most three
-  // tries per copy in half an hour, so a copy cannot be thrown back and forth.
+  // A worktree copy moves with its project. When the copy and its project
+  // stand in different places (a star block or the categories) — the copy's
+  // star sends it up alone, or the project's star sends the project up without
+  // it — the copy is detached (panes and agents keep working) so each stands
+  // where it belongs; when they belong together again, it is put back (only
+  // while the project is open). Copies detached by hand (w) are left alone. At
+  // most three tries per copy in half an hour, so a copy cannot be thrown back
+  // and forth.
   const autoTries = new Map();
   function autoAllowed(checkout, now) {
     const key = paths.normPath(checkout);
@@ -207,31 +210,29 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     const top = new Set(onTopKinds());
     const kinds = starKinds(snap);
     const now = clock();
-    const projectKind = rk => {
-      const p = snap.workspaces.find(w => w.worktree && !w.worktree.is_linked_worktree && paths.normPath(w.worktree.repo_key) === rk);
-      return p ? kinds.get(p.workspace_id) || 0 : 0;
-    };
+    // Where a workspace stands: the block of its star kind, or 0 for the categories.
+    const place = id => { const k = kinds.get(id) || 0; return top.has(k) ? k : 0; };
+    const project = rk => snap.workspaces.find(w => w.worktree && !w.worktree.is_linked_worktree && paths.normPath(w.worktree.repo_key) === rk);
     let changed = false;
     for (const [wsId, d] of Object.entries(state.detached)) {
       if (!d.auto) continue;
-      const k = kinds.get(wsId) || 0;
-      if (top.has(k) && projectKind(d.repoKey) !== k) continue;
+      const p = project(d.repoKey);
+      if (!p || place(wsId) !== place(p.workspace_id)) continue;
       if (!autoAllowed(d.checkout, now)) continue;
       try {
         await ops.reattach(herdr, state, { wsId });
-        log('copy put back into its project: its star no longer sends it up', d.name);
+        log('copy put back into its project: they stand in one place again', d.name);
         changed = true;
       } catch (e) { log('putting the copy back failed', d.name, e.message); }
     }
     for (const u of units.units) {
       if (u.kind !== 'group') continue;
-      const own = kinds.get(u.anchorId) || 0;
+      const own = place(u.anchorId);
       for (const ch of u.children) {
-        const k = kinds.get(ch.wsId) || 0;
-        if (!top.has(k) || k === own || !autoAllowed(ch.checkout, now)) continue;
+        if (place(ch.wsId) === own || !autoAllowed(ch.checkout, now)) continue;
         try {
           await ops.detach(herdr, state, { wsId: ch.wsId, auto: true });
-          log('copy detached to stand with its star', k, ch.label);
+          log('copy detached to stand apart from its project', place(ch.wsId) || 'category', ch.label);
           changed = true;
         } catch (e) { log('detaching the copy failed', ch.label, e.message); }
       }
@@ -626,9 +627,18 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     'unit.detach': async ({ wsId, catId }) => ops.detach(herdr, state, { wsId, catId }),
     'unit.reattach': async ({ wsId }) => {
       const d = state.detached[wsId];
-      const k = d && d.auto && last.snap ? starKinds(last.snap).get(wsId) || 0 : 0;
-      if (k && onTopKinds().includes(k)) {
-        throw new Error(`It stands at the top because of its star ★${k}. Take the star off and it goes back into "${d.parentLabel}" by itself.`);
+      if (d && d.auto && last.snap) {
+        const top = onTopKinds();
+        const kinds = starKinds(last.snap);
+        const k = kinds.get(wsId) || 0;
+        const p = last.snap.workspaces.find(w => w.worktree && !w.worktree.is_linked_worktree && paths.normPath(w.worktree.repo_key) === d.repoKey);
+        const pk = p ? kinds.get(p.workspace_id) || 0 : 0;
+        const at = x => (top.includes(x) ? x : 0);
+        if (p && at(k) !== at(pk)) {
+          throw new Error(at(k)
+            ? `It stands at the top because of its star ★${k}. Take the star off and it goes back into "${d.parentLabel}" by itself.`
+            : `"${d.parentLabel}" stands at the top because of its star ★${pk}, and this copy has no such star. Put ★${pk} on the copy too, or take it off the project, and it goes back by itself.`);
+        }
       }
       return ops.reattach(herdr, state, { wsId });
     },

@@ -14,13 +14,14 @@ const KEYS_END = '# <<< anton.sidebar keys';
 
 // The first row is the category title: only the first project of a category
 // reports $section, and a row with no value is not drawn at all.
+// A project is one line: no branch row, and the project of a detached copy
+// ($project, `⎇ name`) stands right of its name.
 // $lavish is the violet dot after the star: an agent there waits for your answer on a Lavish page.
 const STAR_TOKEN = `{ token = "$star", rules = [${KINDS.map(k => `{ starts_with = "${token(k.kind)}", fg = "${k.color}" }`).join(', ')}] }`;
+const LAVISH_TOKEN = `{ token = "$lavish", fg = "${lavish.COLOR}" }`;
 const STYLED_ROWS = [
   '  [{ token = "$section", fg = "#fabd2f", bold = true }],',
-  `  ["state_icon", ${STAR_TOKEN}, { token = "$lavish", fg = "${lavish.COLOR}" }, "workspace", { token = "$key", fg = "#83a598" }],`,
-  '  ["branch", "git_status"],',
-  '  [{ token = "$project", dim = true }],',
+  `  ["state_icon", ${STAR_TOKEN}, ${LAVISH_TOKEN}, "workspace", { token = "$project", dim = true }, { token = "$key", fg = "#83a598" }],`,
   '  [{ token = "$duty", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }, { starts_with = "◆", fg = "#b8bb26" }] }],',
 ];
 const OPEN_KEY = 'prefix+shift+s';
@@ -57,6 +58,8 @@ const OUR_ROWS = new Set([
   squash('["state_icon", "workspace", { token = "$key", fg = "#83a598" }]'),
   squash('["state_icon", { token = "$star", fg = "#fabd2f" }, "workspace", { token = "$key", fg = "#83a598" }]'),
   squash(`["state_icon", ${STAR_TOKEN}, "workspace", { token = "$key", fg = "#83a598" }]`), // before the $lavish dot (08.10.2026)
+  squash(`["state_icon", ${STAR_TOKEN}, ${LAVISH_TOKEN}, "workspace", { token = "$key", fg = "#83a598" }]`), // before one line per project (11.10.2026)
+  squash('[{ token = "$project", dim = true }]'),
 ]);
 const TABLE_RE = /^\s*\[\[?\s*[A-Za-z0-9_."-]+(\s*\.\s*[A-Za-z0-9_."-]+)*\s*\]\]?\s*(#.*)?$/;
 

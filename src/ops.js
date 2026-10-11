@@ -69,14 +69,20 @@ async function detach(herdr, state, { wsId, catId, auto }) {
     ...(auto ? { auto: true } : {}),
   };
   const key = `ws:${newId}`;
-  const groupKey = `repo:${rk}`;
+  // The project's place: its group, or the project alone once its last copy left.
+  const homeKeys = [`repo:${rk}`, ...(parent ? [`ws:${parent.workspace_id}`] : [])];
+  const isHome = k => homeKeys.includes(k);
   for (const c of state.categories) c.units = c.units.filter(k => k !== key);
   let target = null;
-  if (catId === undefined || catId === null) target = state.categories.find(c => c.units.includes(groupKey)) || null;
+  if (catId === undefined || catId === null) target = state.categories.find(c => c.units.some(isHome)) || null;
   else if (catId !== NONE_ID) target = state.categories.find(c => c.id === catId) || null;
   if (target) {
-    const i = target.units.indexOf(groupKey);
-    target.units.splice(i >= 0 ? i + 1 : target.units.length, 0, key);
+    // Right under the project, after the copies that left it before, in the order they left.
+    const i = target.units.findIndex(isHome);
+    let at = i >= 0 ? i + 1 : target.units.length;
+    const sibling = k => k.startsWith('ws:') && !!state.detached[k.slice(3)] && state.detached[k.slice(3)].repoKey === rk;
+    while (i >= 0 && at < target.units.length && sibling(target.units[at])) at++;
+    target.units.splice(at, 0, key);
   }
   state.units[key] = { path: normPath(ws.worktree.checkout_path), label: ws.label, seen: Date.now() };
   retarget(state, wsId, newId);
