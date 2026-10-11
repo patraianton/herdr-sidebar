@@ -158,6 +158,13 @@ async function main() {
     assert(/awsome-motive-landing/.test(s), `name cut:\n${s}`);
     assert(/pricing\s+·\s+⎇ acme-api/.test(s), `short name with its project:\n${s}`);
   });
+  await step('a project under a title starts at the same column as the others', async () => {
+    const lines = screen().split(/\r?\n/).map(l => l.split('│')[0]);
+    const lead = re => { const l = lines.find(x => re.test(x)); return l ? l.length - l.trimStart().length : -1; };
+    const titled = lead(/★1 · acme-api/);
+    const plain = lead(/pricing · ⎇/);
+    assert(titled >= 0 && titled === plain, `acme-api starts at ${titled}, pricing at ${plain}:\n${lines.join('\n')}`);
+  });
   await step('no warning about the setting on screen', async () => {
     const s = screen();
     const warn = s.split(/\r?\n/).find(l => /unknown (config )?keys?|config check/i.test(l));
