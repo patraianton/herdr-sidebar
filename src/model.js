@@ -218,6 +218,65 @@ function projectLabels(workspaces) {
   return out;
 }
 
+// The project of each repo: the first workspace on its main checkout.
+// Returns Map repo key -> workspace id.
+function projectHeads(workspaces) {
+  const heads = new Map();
+  for (const w of workspaces) {
+    if (!w.worktree || !w.worktree.repo_key || w.worktree.is_linked_worktree) continue;
+    const rk = normPath(w.worktree.repo_key);
+    if (!heads.has(rk)) heads.set(rk, w.workspace_id);
+  }
+  return heads;
+}
+
+// A herdr build that draws a workspace under the one above it (custom token
+// "nested"): in every star block and category, the copies of a project that
+// stand in the same place follow it at once and are drawn under it. A copy
+// whose project stands elsewhere (a star of another kind, no star, another
+// category) keeps its own line and its place. repoOf: workspace id -> repo
+// key or null; heads: projectHeads(). Returns { state, nested: Map copy id ->
+// project id }.
+function nestCopies(shown, units, repoOf, heads) {
+  const nested = new Map();
+  const idOf = k => (units.byKey[k] ? units.byKey[k].anchorId : null);
+  const categories = shown.categories.map(c => {
+    const here = new Set(c.units.map(idOf).filter(Boolean));
+    const copiesOf = new Map();
+    for (const k of c.units) {
+      const id = idOf(k);
+      const rk = id && repoOf(id);
+      const head = rk && heads.get(rk);
+      if (!head || head === id || !here.has(head)) continue;
+      if (!copiesOf.has(head)) copiesOf.set(head, []);
+      copiesOf.get(head).push(k);
+    }
+    if (!copiesOf.size) return c;
+    const pulled = new Set([...copiesOf.values()].flat());
+    const order = [];
+    for (const k of c.units) {
+      if (pulled.has(k)) continue;
+      order.push(k);
+      const kids = copiesOf.get(idOf(k)) || [];
+      for (const x of kids) { order.push(x); nested.set(idOf(x), idOf(k)); }
+    }
+    return { ...c, units: order };
+  });
+  return { state: { ...shown, categories }, nested };
+}
+
+// herdr draws a nested workspace under whatever stands above it, so only the
+// copies that stand right under their project (or under a copy drawn there)
+// in herdr's order keep the mark — not ones left elsewhere by a paused order.
+function nestedInOrder(nested, order) {
+  const out = new Map();
+  for (let i = 1; i < order.length; i++) {
+    const head = nested.get(order[i]);
+    if (head && (order[i - 1] === head || out.get(order[i - 1]) === head)) out.set(order[i], head);
+  }
+  return out;
+}
+
 function categoryOf(state, key) {
   const c = state.categories.find(x => x.units.includes(key));
   return c ? c.id : null;
@@ -406,6 +465,6 @@ function learnFromOrder(state, units, liveOrder, hintIds = [], pinned = new Set(
 
 module.exports = {
   NONE_ID, NONE_LABEL, headerLabel, isHeaderLabel,
-  buildUnits, reconcile, placeNewCopies, projectLabels, categoryOf, starBlocks, withBlocks, desiredOrder, sectionTokens, learnBlockOrder, learnFromOrder, staleDetached,
+  buildUnits, reconcile, placeNewCopies, projectLabels, projectHeads, nestCopies, nestedInOrder, categoryOf, starBlocks, withBlocks, desiredOrder, sectionTokens, learnBlockOrder, learnFromOrder, staleDetached,
   _internal: { displaySeq, lcs },
 };

@@ -142,6 +142,13 @@ top, and a copy that appears joins its project's category right under the projec
 lets a Space name keep its full width before `⎇ <project>` gets the rest of the row. With a herdr
 that does not know the setting, the plugin works as above.
 
+Where a project and its copies stand in the same place — the same star block, or the same category —
+that build also draws the copies under the project, the way herdr draws a worktree group: the
+plugin keeps them right after the project and marks them with the token `nested`. Dragging the
+project takes them along. A copy whose project stands elsewhere (a star of another kind, or no
+star while the project went up) keeps its own line and its `⎇ <project>`, so the copies you did
+not star are not pulled up with the project.
+
 ## Jump hotkeys
 
 Select a project, press `k` and pick a key. The window only offers keys that are free — not taken

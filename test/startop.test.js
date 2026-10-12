@@ -162,6 +162,7 @@ function setup(list, state, settings, opts = {}) {
   const keysConfig = {
     file: () => 'C:/fake/config.toml', read: () => text, write: () => {}, backup: () => {}, issues: () => [], defaults: () => '[keys]\n',
     flat: () => !!opts.flat,
+    nests: () => !!opts.nests,
   };
   const d = createDaemon({
     socketPath: 'C:/fake/herdr.sock', dir, configDir, herdr, keysConfig,
@@ -408,4 +409,51 @@ test("a drag inside a star block stays: the block keeps the person's order; a ne
   await x.d._test.cycle('t');
   assert.deepEqual(ids(list), ['w3', 'w4', 'w1', 'w2']);
   x.cleanup();
+});
+
+test('nested: copies standing with their project follow it and are drawn under it; the others keep their line and the project name', async () => {
+  const star = (id, label, kind, p) => ({ kind, target: { wsId: id, label, path: p } });
+  const list = [
+    ws('w1', 'api', wt('api', false, 'C:\p\api')),
+    ws('w2', 'cookie', wt('api', true, 'C:\wt\cookie')),
+    ws('w3', 'jam', wt('api', true, 'C:\wt\jam')),
+    ws('w4', 'tea', wt('api', true, 'C:\wt\tea')),
+    ws('w5', 'blog'),
+    ws('w6', 'notes'),
+    ws('w7', 'dev-ops'),
+  ];
+  const x = setup(list, {
+    categories: [{ id: 'c1', name: 'Code', units: ['ws:w2', 'ws:w5', 'ws:w1', 'ws:w3', 'ws:w4', 'ws:w6', 'ws:w7'] }], nextId: 2,
+    detached: { w7: { checkout: 'C:\wt\dev-ops', repoKey: 'c:/p/api/.git', repoRoot: 'C:\p\api', parentLabel: 'api', name: 'dev-ops', at: 1 } },
+    stars: [
+      star('w1', 'api', 1, 'c:/p/api'), star('w2', 'cookie', 1, 'c:/wt/cookie'), star('w5', 'blog', 1, 'c:/p/blog'),
+      star('w7', 'dev-ops', 1, 'c:/p/dev-ops'), star('w4', 'tea', 2, 'c:/wt/tea'),
+    ],
+  }, { starsOnTop: [1, 2] }, { flat: true, nests: true });
+  await x.d._test.cycle('t');
+  assert.deepEqual(ids(list), ['w5', 'w1', 'w2', 'w7', 'w4', 'w3', 'w6'], 'the copies with the same star follow the project');
+  assert.deepEqual(['w1', 'w2', 'w3', 'w4', 'w5', 'w7'].map(id => tok(list, id, 'nested')), [undefined, '1', undefined, undefined, undefined, '1']);
+  assert.equal(tok(list, 'w2', 'project'), undefined, 'drawn under the project: no name of it');
+  assert.equal(tok(list, 'w7', 'project'), undefined);
+  assert.equal(tok(list, 'w3', 'project'), '⎇ api', 'no star: stays below in its category');
+  assert.equal(tok(list, 'w4', 'project'), '⎇ api', 'another star: stays in its own block');
+  assert.equal(tok(list, 'w5', 'section'), '━━ ★ MAIN ━━');
+  assert.equal(tok(list, 'w3', 'section'), '━━ CODE ━━');
+  assert.deepEqual(x.calls, [], 'no pane moves');
+
+  list.unshift(...list.splice(1, 3)); // the person drags the project with its copies to the top
+  await x.d._test.cycle('t');
+  assert.deepEqual(ids(list), ['w1', 'w2', 'w7', 'w5', 'w4', 'w3', 'w6'], 'not put back');
+  assert.equal(tok(list, 'w2', 'nested'), '1');
+
+  await x.d.handle('star.set', { wsId: 'w2', kind: 0 });
+  assert.equal(tok(list, 'w2', 'nested'), undefined, 'the star off: the copy goes down to its category');
+  assert.equal(tok(list, 'w2', 'project'), '⎇ api');
+  x.cleanup();
+});
+
+test('nestedInOrder: only copies right under their project (or a copy drawn there) keep the mark', () => {
+  const nested = new Map([['b', 'a'], ['c', 'a'], ['d', 'a']]);
+  assert.deepEqual([...model.nestedInOrder(nested, ['a', 'b', 'c', 'x', 'd'])], [['b', 'a'], ['c', 'a']]);
+  assert.deepEqual([...model.nestedInOrder(nested, ['b', 'a'])], []);
 });

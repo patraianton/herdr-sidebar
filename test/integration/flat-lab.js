@@ -79,9 +79,10 @@ async function main() {
   }
   const canFlat = spawnSync(CLIENT, ['--default-config'], { encoding: 'utf8' }).stdout || '';
   await step('the new build knows group_worktrees', async () => assert(/group_worktrees/.test(canFlat), 'not in --default-config'));
+  await step('the new build draws a Space with the token "nested" under the one above', async () => assert(/token "nested"/.test(canFlat), 'not in --default-config'));
 
   fs.rmSync(LAB, { recursive: true, force: true });
-  for (const d of ['acme-api', 'blog', 'wt', 'config']) fs.mkdirSync(path.join(LAB, d), { recursive: true });
+  for (const d of ['acme-api', 'blog', 'notes', 'wt', 'config']) fs.mkdirSync(path.join(LAB, d), { recursive: true });
   const base = 'onboarding = false\n[ui]\nsidebar_width = 34\nsidebar_min_width = 34\nsidebar_max_width = 34\n[ui.toast]\ndelivery = "herdr"\n[server]\nheadless_cols = 150\nheadless_rows = 40\n';
   fs.writeFileSync(env.HERDR_CONFIG_PATH, configpatch.patchConfig(base, { flat: true }).text);
   fs.writeFileSync(path.join(CONFIG_DIR, 'install.json'), JSON.stringify({ configFile: env.HERDR_CONFIG_PATH, originalRows: null, hadTable: false }));
@@ -104,7 +105,7 @@ async function main() {
   for (const name of ['awsome-motive-landing', 'pricing']) {
     h('worktree', 'create', '--workspace', wsA, '--branch', name, '--path', path.join(LAB, 'wt', name), '--label', name, '--no-focus');
   }
-  h('workspace', 'create', '--cwd', path.join(LAB, 'blog'), '--label', 'blog', '--no-focus');
+  for (const name of ['blog', 'notes']) h('workspace', 'create', '--cwd', path.join(LAB, name), '--label', name, '--no-focus');
 
   daemon = spawn(process.execPath, [path.join(ROOT, 'src', 'daemon.js')], {
     env: { ...env, HERDR_SOCKET_PATH: SOCK, HERDR_PLUGIN_STATE_DIR: STATE_DIR, HERDR_PLUGIN_CONFIG_DIR: CONFIG_DIR, HERDR_BIN_PATH: CLIENT, SIDEBAR_TELEGRAM_DISABLED: '1' },
@@ -117,9 +118,11 @@ async function main() {
   const id = label => byLabel(ws, label).workspace_id;
   await helper('category.create', { name: 'Code' });
   const cat = (await helper('view')).categories[0].id;
-  await helper('unit.move', { key: `ws:${id('blog')}`, catId: cat, index: 0 });
-  await helper('unit.move', { key: `ws:${id('acme-api')}`, catId: cat, index: 1 });
-  await helper('star.set', { wsId: id('acme-api'), kind: 1 });
+  // Code: blog, notes, acme-api and its two copies. acme-api and pricing go up
+  // with ★1; the copy without the star stays in Code.
+  const order = ['blog', 'notes', 'acme-api', 'awsome-motive-landing', 'pricing'];
+  for (const [index, label] of order.entries()) await helper('unit.move', { key: `ws:${id(label)}`, catId: cat, index });
+  for (const label of ['acme-api', 'pricing']) await helper('star.set', { wsId: id(label), kind: 1 });
 
   await step('nothing is detached: every workspace keeps its id', async () => {
     await sleep(4000);
@@ -129,10 +132,12 @@ async function main() {
     assert(/nothing is detached any more/.test(log), 'the helper did not see the flat sidebar');
     assert(!/copy detached/.test(log), 'the helper detached a copy');
   });
-  await step('the copies carry ⎇ acme-api', async () => {
-    await waitFor('project tokens', async () => {
+  await step('the starred copy is marked to be drawn under acme-api; the other carries ⎇ acme-api', async () => {
+    await waitFor('tokens', async () => {
       const l = await list();
-      return ['awsome-motive-landing', 'pricing'].every(x => (byLabel(l, x).tokens || {}).project === '⎇ acme-api');
+      const t = x => byLabel(l, x).tokens || {};
+      return t('pricing').nested === '1' && !t('pricing').project
+        && t('awsome-motive-landing').project === '⎇ acme-api' && !t('awsome-motive-landing').nested;
     });
   });
 
@@ -143,27 +148,28 @@ async function main() {
   v('pane', 'run', vpane, `node "${path.join(__dirname, 'attach.js')}" ${SESSION} "${CLIENT}"`);
   const screen = () => (screenText = v('pane', 'read', vpane, '--source', 'visible', '--lines', '40'));
 
-  await step('the sidebar draws the copies on lines of their own, under the project', async () => {
-    await waitFor('copies drawn', async () => /awsome-motive/.test(screen()) && /pricing/.test(screen()), 30000)
+  await step('the starred copy is drawn under acme-api; the copy without the star stays below on its own line', async () => {
+    await waitFor('copies drawn', async () => /└─.*pricing/.test(screen()) && /awsome-motive/.test(screen()), 30000)
       .catch(e => { throw new Error(`${e.message}\n${screenText}`); });
     const s = screen();
-    assert(!/[├└]─/.test(s), `tree lines still drawn:\n${s}`);
     const lines = s.split(/\r?\n/);
-    const at = x => lines.findIndex(l => l.includes(x));
-    assert(at('acme-api') >= 0 && at('acme-api') < at('awsome-motive') && at('awsome-motive') < at('pricing'), `order:\n${s}`);
+    const at = re => lines.findIndex(l => re.test(l));
+    assert(at(/★1 · acme-api/) >= 0 && at(/└─.*pricing/) === at(/★1 · acme-api/) + 1, `pricing not right under acme-api:\n${s}`);
+    assert(at(/CODE/) < at(/awsome-motive/), `the copy without the star went up:\n${s}`);
+    assert(!/[├└]─/.test(lines[at(/awsome-motive/)]), `the copy without the star is drawn as nested:\n${s}`);
   });
   // the lab sidebar is 34 columns: the long name fits only if it goes first
   await step('the name is shown whole before ⎇ gets the rest', async () => {
     const s = screen();
     assert(/awsome-motive-landing/.test(s), `name cut:\n${s}`);
-    assert(/pricing\s+·\s+⎇ acme-api/.test(s), `short name with its project:\n${s}`);
+    assert(/awsome-motive-landing\s+·\s+⎇/.test(s), `name with its project:\n${s}`);
   });
   await step('a project under a title starts at the same column as the others', async () => {
     const lines = screen().split(/\r?\n/).map(l => l.split('│')[0]);
     const lead = re => { const l = lines.find(x => re.test(x)); return l ? l.length - l.trimStart().length : -1; };
     const titled = lead(/★1 · acme-api/);
-    const plain = lead(/pricing · ⎇/);
-    assert(titled >= 0 && titled === plain, `acme-api starts at ${titled}, pricing at ${plain}:\n${lines.join('\n')}`);
+    const plain = lead(/ notes\s*$/);
+    assert(titled >= 0 && titled === plain, `acme-api starts at ${titled}, notes at ${plain}:\n${lines.join('\n')}`);
   });
   await step('no warning about the setting on screen', async () => {
     const s = screen();

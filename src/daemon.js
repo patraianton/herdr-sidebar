@@ -27,7 +27,7 @@ const SUBSCRIPTIONS = [
   'workspace.created', 'workspace.closed', 'workspace.moved', 'workspace.reordered', 'workspace.renamed',
   'worktree.created', 'worktree.opened', 'worktree.removed',
 ].map(type => ({ type }));
-const TOKEN_KEYS = ['section', 'project', 'duty', 'key', 'star', 'lavish'];
+const TOKEN_KEYS = ['section', 'project', 'duty', 'key', 'star', 'lavish', 'nested'];
 const NOT_INSTALLED = 'The plugin is not set up in herdr\'s config yet. Run: herdr plugin action invoke setup --plugin anton.sidebar';
 
 // config.toml access for the hotkeys; tests pass their own.
@@ -80,6 +80,8 @@ function defaultKeysConfig(configDir) {
       try { can = /group_worktrees/.test(defaultsText()); } catch {}
       return can && /^\s*group_worktrees\s*=\s*false\b/m.test(fs.readFileSync(file, 'utf8'));
     },
+    // ...and draws a workspace whose token "nested" is set under the one above.
+    nests: () => /token "nested"/.test(defaultsText()),
   };
 }
 
@@ -100,7 +102,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
   let state = store.loadState(files.state);
   let startedAt = clock();
   let chain = Promise.resolve();
-  const last = { snap: null, units: null, sections: {}, lavish: new Set() };
+  const last = { snap: null, units: null, sections: {}, nested: new Map(), lavish: new Set() };
   let lavishBusy = false;
   let lavishError = '';
   let dragHints = []; // workspace ids herdr reported as moved by a reorder since the last cycle
@@ -220,16 +222,22 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
   // herdr lists worktree copies on lines of their own: nothing has to be
   // detached, a copy stands where it belongs by itself. Asked again every
   // five minutes, so a switch of herdr build is followed.
-  let flatSeen = { at: -Infinity, on: false };
+  // With a build that also draws a workspace under the one above it (nests),
+  // a project's copies that stand where it stands are drawn under it.
+  let flatSeen = { at: -Infinity, on: false, nests: false };
   function flatMode() {
     const now = clock();
     if (now - flatSeen.at < 5 * 60000) return flatSeen.on;
     let on = false;
+    let nests = false;
     try { on = !!(keysConfig.flat && keysConfig.flat()); } catch {}
+    try { nests = on && !!(keysConfig.nests && keysConfig.nests()); } catch {}
     if (on !== flatSeen.on) log(on ? 'herdr lists worktree copies on lines of their own: nothing is detached any more' : 'herdr groups worktree copies again');
-    flatSeen = { at: now, on };
+    if (nests !== flatSeen.nests) log(nests ? 'copies are drawn under their project where both stand together' : 'copies are not drawn under their project');
+    flatSeen = { at: now, on, nests };
     return on;
   }
+  const nestMode = () => flatMode() && flatSeen.nests;
 
   async function placeStarredCopies(snap, units) {
     const top = new Set(onTopKinds());
@@ -294,7 +302,9 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     const blocks = () => model.starBlocks(state, units, id => kinds.get(id) || 0, onTopKinds(), k => stars.KINDS[k - 1].name);
     // A drag in the sidebar moves one project (or one worktree group); the
     // helper's own reorders move many, so they are not hints.
-    const hints = dragHints.filter(ids => new Set(ids.map(id => units.unitOf[id])).size === 1).flat();
+    // A project dragged with the copies drawn under it is one move too.
+    const unitOfDrag = id => units.unitOf[last.nested.get(id) || id];
+    const hints = dragHints.filter(ids => new Set(ids.map(unitOfDrag)).size === 1).flat();
     dragHints = [];
     const inBlock = model.learnBlockOrder(state, units, snap.order, blocks());
     if (inBlock.moved.length) {
@@ -306,7 +316,16 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       log('moved by hand:', learned.moved.join(' '));
       state = learned.state;
     }
-    const shown = model.withBlocks(state, blocks());
+    let shown = model.withBlocks(state, blocks());
+    let nested = new Map();
+    if (flat && nestMode()) {
+      const repoOf = id => {
+        const w = snap.byId.get(id);
+        const rk = w && w.worktree && w.worktree.repo_key ? w.worktree.repo_key : (state.detached[id] || {}).repoKey;
+        return rk ? paths.normPath(rk) : null;
+      };
+      ({ state: shown, nested } = model.nestCopies(shown, units, repoOf, model.projectHeads(snap.workspaces)));
+    }
     const desired = now < pauseUntil ? null : model.desiredOrder(shown, units, snap.order);
     if (desired && desired.join() !== snap.order.join() && allowMove()) {
       try {
@@ -334,6 +353,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     last.snap = snap;
     last.units = units;
     last.sections = model.sectionTokens(shown, units, state.lastApplied);
+    last.nested = model.nestedInOrder(nested, state.lastApplied);
     continuityBroken = false;
     return snap;
   }
@@ -348,8 +368,11 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       want.set(wsId, t);
     };
     for (const [wsId, title] of Object.entries(last.sections)) put(wsId, 'section', title);
-    if (flatMode()) for (const [wsId, label] of Object.entries(model.projectLabels(snap.workspaces))) put(wsId, 'project', `⎇ ${label}`);
-    for (const [wsId, d] of Object.entries(state.detached)) put(wsId, 'project', `⎇ ${d.parentLabel}`);
+    // A copy drawn under its project needs no "⎇ project".
+    const under = id => last.nested.has(id);
+    if (flatMode()) for (const [wsId, label] of Object.entries(model.projectLabels(snap.workspaces))) if (!under(wsId)) put(wsId, 'project', `⎇ ${label}`);
+    for (const [wsId, d] of Object.entries(state.detached)) if (!under(wsId)) put(wsId, 'project', `⎇ ${d.parentLabel}`);
+    for (const wsId of last.nested.keys()) put(wsId, 'nested', '1');
     for (const d of Object.values(state.duty)) if (d.wsId) put(d.wsId, 'duty', duty.dutyToken(d, clock()));
     for (const [wsId, list] of keysByWs()) put(wsId, 'key', list.map(k => k.display).join(' '));
     for (const [wsId, kind] of starKinds(snap)) put(wsId, 'star', stars.token(kind));
