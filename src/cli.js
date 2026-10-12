@@ -39,8 +39,12 @@ const say = s => process.stdout.write(`${s}\n`);
 function fail(s, code = 1) { throw Object.assign(new Error(s), { exitCode: code }); }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const herdrRun = args => spawnSync(HERDR, args, { encoding: 'utf8', windowsHide: true });
-// herdr can list worktree copies on lines of their own ([ui.sidebar.spaces] group_worktrees).
-const herdrCanFlat = () => /group_worktrees/.test(herdrRun(['--default-config']).stdout || '');
+// What this herdr build can do with the sidebar ([ui.sidebar.spaces]): list worktree copies on
+// lines of their own (group_worktrees) and put a plain space between the parts of a row (separator).
+function herdrCan() {
+  const defaults = herdrRun(['--default-config']).stdout || '';
+  return { flat: /group_worktrees/.test(defaults), compact: /^# separator = /m.test(defaults) };
+}
 
 function parseArgs(argv) {
   const out = { _: [] };
@@ -155,7 +159,7 @@ async function restartHelper() {
 async function refreshInstall(cfg) {
   const text = fs.readFileSync(cfg, 'utf8');
   let next;
-  try { next = configpatch.refreshConfig(text, { flat: herdrCanFlat() }); } catch (e) { fail(`The plugin's lines are not in ${cfg}: ${e.message}`); }
+  try { next = configpatch.refreshConfig(text, herdrCan()); } catch (e) { fail(`The plugin's lines are not in ${cfg}: ${e.message}`); }
   if (next === text) { writeShims(); say('Already set up, herdr settings are up to date.'); await restartHelper(); return; }
   const backup = `${cfg}.bak-${today()}-sidebar-refresh`;
   if (!fs.existsSync(backup)) fs.copyFileSync(cfg, backup);
@@ -181,7 +185,7 @@ function install() {
   const text = exists ? fs.readFileSync(cfg, 'utf8') : '';
   const backup = `${cfg}.bak-${today()}-sidebar`;
   if (exists && !fs.existsSync(backup)) fs.copyFileSync(cfg, backup);
-  const patched = configpatch.patchConfig(text, { flat: herdrCanFlat() });
+  const patched = configpatch.patchConfig(text, herdrCan());
   fs.writeFileSync(cfg, patched.text);
   const check = herdrRun(['config', 'check']);
   if (check.status !== 0) {

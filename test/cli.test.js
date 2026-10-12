@@ -47,3 +47,11 @@ test('uninstall stops before touching the config when the helper cannot restore 
   assert.ok(fs.existsSync(path.join(dir, 'install.json')), 'install record kept');
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('every file of the plugin loads (the window broke unnoticed once: a line break inside a string)', () => {
+  const src = path.join(__dirname, '..', 'src');
+  for (const f of require('node:fs').readdirSync(src).filter(n => n.endsWith('.js'))) {
+    const r = spawnSync(process.execPath, ['--check', path.join(src, f)], { encoding: 'utf8' });
+    assert.equal(r.status, 0, `${f}: ${r.stderr}`);
+  }
+});

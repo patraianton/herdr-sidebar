@@ -14,15 +14,16 @@ const KEYS_END = '# <<< anton.sidebar keys';
 
 // The first row is the category title: only the first project of a category
 // reports $section, and a row with no value is not drawn at all.
-// A project is one line: no branch row, and the project of a detached copy
-// ($project, `⎇ name`) stands right of its name.
+// A project is one line: no branch row; right of its name stand the duty mark
+// ($duty, `3d/30m`, red on an alarm) and the project of a detached copy
+// ($project, `⎇ name`).
 // $lavish is the violet dot after the star: an agent there waits for your answer on a Lavish page.
 const STAR_TOKEN = `{ token = "$star", rules = [${KINDS.map(k => `{ starts_with = "${token(k.kind)}", fg = "${k.color}" }`).join(', ')}] }`;
 const LAVISH_TOKEN = `{ token = "$lavish", fg = "${lavish.COLOR}" }`;
+const DUTY_TOKEN = '{ token = "$duty", fg = "#b8bb26", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }] }';
 const STYLED_ROWS = [
   '  [{ token = "$section", fg = "#fabd2f", bold = true }],',
-  `  ["state_icon", ${STAR_TOKEN}, ${LAVISH_TOKEN}, "workspace", { token = "$project", dim = true }, { token = "$key", fg = "#83a598" }],`,
-  '  [{ token = "$duty", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }, { starts_with = "◆", fg = "#b8bb26" }] }],',
+  `  ["state_icon", ${STAR_TOKEN}, ${LAVISH_TOKEN}, "workspace", ${DUTY_TOKEN}, { token = "$project", dim = true }, { token = "$key", fg = "#83a598" }],`,
 ];
 const OPEN_KEY = 'prefix+shift+s';
 // Alt+N walks through the workspaces with a star of kind N; FN puts that star
@@ -60,6 +61,9 @@ const OUR_ROWS = new Set([
   squash(`["state_icon", ${STAR_TOKEN}, "workspace", { token = "$key", fg = "#83a598" }]`), // before the $lavish dot (08.10.2026)
   squash(`["state_icon", ${STAR_TOKEN}, ${LAVISH_TOKEN}, "workspace", { token = "$key", fg = "#83a598" }]`), // before one line per project (11.10.2026)
   squash('[{ token = "$project", dim = true }]'),
+  // before the duty mark moved right of the name (12.10.2026)
+  squash(`["state_icon", ${STAR_TOKEN}, ${LAVISH_TOKEN}, "workspace", { token = "$project", dim = true }, { token = "$key", fg = "#83a598" }]`),
+  squash('[{ token = "$duty", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }, { starts_with = "◆", fg = "#b8bb26" }] }]'),
 ]);
 const TABLE_RE = /^\s*\[\[?\s*[A-Za-z0-9_."-]+(\s*\.\s*[A-Za-z0-9_."-]+)*\s*\]\]?\s*(#.*)?$/;
 
@@ -151,11 +155,14 @@ function extraRows(rowsText) {
 // flat: herdr can list worktree copies on lines of their own, so the plugin
 // asks it to (then no copy has to be detached).
 const FLAT_LINE = 'group_worktrees = false';
-function rowsBlock(extra, flat) {
-  return [BEGIN, 'rows = [', ...STYLED_ROWS, ...extra.map(e => `  ${e},`), ']', ...(flat ? [FLAT_LINE] : []), END];
+// compact: herdr can draw a plain space between the parts of a row instead
+// of " · ", so more of a name fits.
+const COMPACT_LINE = 'separator = " "';
+function rowsBlock(extra, { flat = false, compact = false } = {}) {
+  return [BEGIN, 'rows = [', ...STYLED_ROWS, ...extra.map(e => `  ${e},`), ']', ...(flat ? [FLAT_LINE] : []), ...(compact ? [COMPACT_LINE] : []), END];
 }
 
-function patchConfig(text, { flat = false } = {}) {
+function patchConfig(text, opts = {}) {
   const { eol, lines } = splitLines(text);
   if (lines.some(l => isBegin(l) || l.trim() === KEYS_BEGIN)) throw new Error('already installed');
   let originalRows = null;
@@ -165,13 +172,13 @@ function patchConfig(text, { flat = false } = {}) {
     const r = findRows(lines, t);
     if (r) {
       originalRows = lines.slice(r.start, r.end + 1).join('\n');
-      lines.splice(r.start, r.end - r.start + 1, ...rowsBlock(extraRows(originalRows), flat));
+      lines.splice(r.start, r.end - r.start + 1, ...rowsBlock(extraRows(originalRows), opts));
     } else {
-      lines.splice(t + 1, 0, ...rowsBlock([], flat));
+      lines.splice(t + 1, 0, ...rowsBlock([], opts));
     }
   } else {
     const at = lines.length && lines[lines.length - 1] === '' ? lines.length - 1 : lines.length;
-    lines.splice(at, 0, '[ui.sidebar.spaces]', ...rowsBlock([], flat));
+    lines.splice(at, 0, '[ui.sidebar.spaces]', ...rowsBlock([], opts));
   }
   const at = lines.length && lines[lines.length - 1] === '' ? lines.length - 1 : lines.length;
   lines.splice(at, 0, ...keysBlock());
@@ -192,13 +199,13 @@ function jumpBindings(inner) {
 // Rewrite the installed blocks to this version: the rows (keeping rows the
 // person added inside the block) and the fixed key bindings (keeping the
 // hotkeys). Uninstall still restores the rows saved at install.
-function refreshConfig(text, { flat = false } = {}) {
+function refreshConfig(text, opts = {}) {
   const { eol, lines } = splitLines(text);
   const b = lines.findIndex(isBegin);
   const e = lines.findIndex(l => l.trim() === END);
   if (b < 0 || e <= b) throw new Error('not installed');
   const extra = topLevelElements(lines.slice(b + 1, e).join('\n')).filter(x => !OUR_ROWS.has(squash(x)));
-  lines.splice(b, e - b + 1, ...rowsBlock(extra, flat));
+  lines.splice(b, e - b + 1, ...rowsBlock(extra, opts));
   const kb = lines.findIndex(l => l.trim() === KEYS_BEGIN);
   const ke = lines.findIndex(l => l.trim() === KEYS_END);
   if (kb >= 0 && ke > kb) {

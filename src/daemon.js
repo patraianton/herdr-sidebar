@@ -630,7 +630,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       paneId: a.pane_id, agent: a.agent || 'agent', title: a.terminal_title_stripped || '', status: a.agent_status,
     }));
     const dutyOf = wsId => Object.values(state.duty).filter(d => d.wsId === wsId).map(d => ({
-      id: d.id, paneId: d.paneId, text: duty.dutyToken(d, clock()), alert: !!d.alert, everyMs: d.everyMs,
+      id: d.id, paneId: d.paneId, text: duty.dutyText(d, clock()), alert: !!d.alert, everyMs: d.everyMs,
     }));
     const keys = keysByWs();
     const keysOf = wsId => keys.get(wsId) || [];
@@ -882,7 +882,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
       return { kind: k, name: stars.KINDS[k - 1].name };
     },
     'duty.status': async () => Object.values(state.duty).map(d => ({
-      id: d.id, label: d.label, wsId: d.wsId, every: duty.fmtDur(d.everyMs), token: duty.dutyToken(d, clock()), alert: d.alert,
+      id: d.id, label: d.label, wsId: d.wsId, every: duty.fmtDur(d.everyMs), token: duty.dutyText(d, clock()), alert: d.alert,
     })),
     uninstall: async () => {
       stopping = true;

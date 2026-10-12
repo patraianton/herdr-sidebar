@@ -30,17 +30,17 @@ gives you a few fast ways to get where you need to be:
 ● ★2 ◉ acme-web
 ○ login-form ⎇ acme-api
 ━━ AUTOMATIONS ━━
-○ ads-watch · F7
-  ◆ on duty 1d9h · every 30m
-○ nightly-report
-  ▲ no wake-up for 46m
+○ ads-watch · 1d/30m · F7
+○ nightly-report · ▲ asleep
 ━━ NO CATEGORY ━━
 ○ scratch
 ```
 
 A project takes one line: the branch line herdr draws by default is left out, and a worktree copy
-that stands apart from its project shows the project after its name (`⎇ acme-api`). Only a duty
-agent gets a second line.
+that stands apart from its project shows the project after its name (`⎇ acme-api`). A duty agent
+shows how long it has been on duty and its interval after its name (`1d/30m`); an alarm turns that
+into one red word (`▲ asleep`, `▲ waiting`, `▲ gone`, `▲ failed`), the details are in the
+message and in the window.
 
 Everything is managed from one popup window (`prefix`, then `Shift+S`) that works with the
 keyboard and the mouse.

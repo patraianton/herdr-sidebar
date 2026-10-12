@@ -387,6 +387,13 @@ test('flat: the block asks herdr for lines of their own, and a refresh without i
   assert.equal(cp.refreshConfig(t1, { flat: true }), t1, 'the line is not taken for a row of the person');
 });
 
+test('compact: the block asks herdr for a plain space between the parts of a row, and a refresh without it takes the line out', () => {
+  const t1 = cp.patchConfig('', { flat: true, compact: true }).text;
+  assert.ok(t1.includes(`]\ngroup_worktrees = false\nseparator = " "\n${cp.END}`));
+  assert.ok(!cp.refreshConfig(t1, { flat: true }).includes('separator'));
+  assert.equal(cp.refreshConfig(t1, { flat: true, compact: true }), t1, 'a second refresh changes nothing');
+});
+
 test("a drag inside a star block stays: the block keeps the person's order; a newly starred one comes last", async () => {
   const list = [ws('w1', 'alpha'), ws('w2', 'beta'), ws('w3', 'gamma'), ws('w4', 'delta')];
   const star = (id, label) => ({ kind: 1, target: { wsId: id, label, path: `c:/p/${label}` } });

@@ -31,8 +31,8 @@ const HELP = [
   'k — hotkey: jump to a project (or one of its tabs) with one key',
   's — star: four kinds, each with its own colour; rename the kinds there too',
   '    a kind can stand at the top of the sidebar: s, then "Stars at the top of the sidebar"',
-  '    (here such projects stay in their categories; a worktree copy that has to stand apart
-     from its project is detached by itself)',
+  '    (here such projects stay in their categories; a worktree copy that has to stand apart',
+  '     from its project is detached by itself)',
   'F1…F4 (window closed) — star 1…4 on the open project, again — off',
   'Alt+1…Alt+4 (window closed) — round the projects with that star',
   'Alt+0 (window closed) — take every star off; again — bring them back',

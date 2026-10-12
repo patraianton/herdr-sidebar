@@ -257,21 +257,21 @@ async function main() {
     report('working');
     await waitFor('agent visible', async () => (await api('agent.list')).agents.some(a => a.pane_id === pane.pane_id));
     await helper('duty.start', { paneId: pane.pane_id, every: '0.1m', source: 'agent' });
-    await until(/^◆ on duty/);
+    await until(/^[0-9]+[mhd][/][0-9]/);
     await helper('duty.fail', { paneId: pane.pane_id, reason: 'test trouble' });
-    await until(/^▲ test trouble$/);
+    await until(/^▲ failed$/);
     await helper('duty.ok', { paneId: pane.pane_id });
-    await until(/^◆/);
+    await until(/^[0-9]/);
     report('blocked');
-    await until(/^▲ waiting for input/);
+    await until(/^▲ waiting$/);
     report('working');
-    await until(/^◆/);
+    await until(/^[0-9]/);
     report('idle');
-    await until(/^▲ no wake-up for/, 40000);
+    await until(/^▲ asleep$/, 40000);
     report('working');
-    await until(/^◆/);
+    await until(/^[0-9]/);
     h('pane', 'release-agent', pane.pane_id, '--source', 'lab', '--agent', 'claude');
-    await until(/^▲ agent pane is gone$/, 40000);
+    await until(/^▲ gone$/, 40000);
     await helper('duty.stop', { paneId: pane.pane_id }).catch(async () => helper('duty.stop', { wsId: w.workspace_id }));
     await until(/^$/);
   });
@@ -289,16 +289,16 @@ async function main() {
     const p1 = byLabel(ws, 'plain1').workspace_id;
     const p2 = byLabel(ws, 'plain2').workspace_id;
     const menu = await helper('hotkey.menu', { wsId: p1 });
-    assert(menu.choices.length === 12, `choices: ${menu.choices.length}`);
-    await helper('hotkey.set', { key: 'alt+5', wsId: p1 });
+    assert(menu.choices.length === 10, `choices: ${menu.choices.length}`);
+    await helper('hotkey.set', { key: 'alt+6', wsId: p1 });
     const tab = h('tab', 'create', '--workspace', p2, '--label', 'logs', '--no-focus').result.tab.tab_id;
-    await helper('hotkey.set', { key: 'f5', wsId: p2, tabId: tab });
+    await helper('hotkey.set', { key: 'f6', wsId: p2, tabId: tab });
     const cfg = fs.readFileSync(env.HERDR_CONFIG_PATH, 'utf8');
-    assert(/key = "alt\+5"\s+type = "plugin_action"\s+command = "anton\.sidebar\.jump-1"/.test(cfg), 'alt+5 binding missing');
-    assert(/key = "f5"\s+type = "plugin_action"\s+command = "anton\.sidebar\.jump-2"/.test(cfg), 'f5 binding missing');
+    assert(/key = "alt\+6"\s+type = "plugin_action"\s+command = "anton\.sidebar\.jump-1"/.test(cfg), 'alt+6 binding missing');
+    assert(/key = "f6"\s+type = "plugin_action"\s+command = "anton\.sidebar\.jump-2"/.test(cfg), 'f6 binding missing');
     const check = spawnSync(HERDR, ['config', 'check'], { env, encoding: 'utf8' });
     assert(check.status === 0, `config check: ${check.stdout}${check.stderr}`);
-    await waitFor('key token', async () => (byLabel(await list(), 'plain1').tokens || {}).key === 'Alt+5');
+    await waitFor('key token', async () => (byLabel(await list(), 'plain1').tokens || {}).key === 'Alt+6');
     await api('workspace.focus', { workspace_id: byLabel(ws, 'repoA').workspace_id });
     await waitFor('repoA focused', async () => await focusedId() === byLabel(ws, 'repoA').workspace_id);
     jump(1);
@@ -326,7 +326,7 @@ async function main() {
 
   await step('after the restart the hotkey still finds its project and its key shows again', async () => {
     const p1 = byLabel(await list(), 'plain1').workspace_id;
-    await waitFor('key token back', async () => (byLabel(await list(), 'plain1').tokens || {}).key === 'Alt+5', 30000);
+    await waitFor('key token back', async () => (byLabel(await list(), 'plain1').tokens || {}).key === 'Alt+6', 30000);
     await api('workspace.focus', { workspace_id: byLabel(await list(), 'repoA').workspace_id });
     await waitFor('repoA focused', async () => await focusedId() === byLabel(await list(), 'repoA').workspace_id);
     jump(1);
@@ -404,8 +404,9 @@ async function main() {
     const pane = (await api('pane.list', { workspace_id: w.workspace_id })).panes[0];
     h('pane', 'run', pane.pane_id, `node "${path.join(ROOT, 'src', 'ui.js')}"`);
     const screen = () => h('pane', 'read', pane.pane_id, '--source', 'visible', '--lines', '60');
-    await waitFor('window drawn', async () => /Sidebar Organizer/.test(screen()) && /ADS/.test(screen()), 20000);
-    await waitFor('key on its row', async () => /plain1.*Alt\+5/.test(screen()), 10000)
+    await waitFor('window drawn', async () => /Sidebar Organizer/.test(screen()) && /ADS/.test(screen()), 20000)
+      .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    await waitFor('key on its row', async () => /plain1.*Alt\+6/.test(screen()), 10000)
       .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
     assert(/★2\s+plain2/.test(screen()) && /★1\s+plain1/.test(screen()), `stars in the window:\n${screen()}`);
     h('pane', 'send-keys', pane.pane_id, '?');

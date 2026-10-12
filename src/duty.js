@@ -128,7 +128,25 @@ function applyFail(d, now, reason) {
 
 function applyReset(d, now) { return { ...d, fail: null, alert: null, lastLifeAt: now, lastActiveAt: now, blockedSince: null, missingSince: null }; }
 
+// How long a duty has been on, in its largest whole unit: 45m, 9h, 3d.
+function fmtAgeShort(ms) {
+  const m = Math.max(0, Math.floor(ms / MIN));
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`;
+}
+
+// The sidebar mark, right of the name and without words: time on duty and the
+// interval (3d/30m); an alarm is one word, the details go to Telegram and the window.
+const ALERT_WORD = { sleep: 'asleep', blocked: 'waiting', gone: 'gone', fail: 'failed' };
 function dutyToken(d, now) {
+  if (d.alert) return `▲ ${ALERT_WORD[d.alert.kind] || 'alarm'}`;
+  const age = now && d.createdAt ? `${fmtAgeShort(now - d.createdAt)}/` : '';
+  return `${age}${fmtDur(d.everyMs)}`;
+}
+
+// The same in words, for the window and `herdr-duty status`.
+function dutyText(d, now) {
   if (d.alert) return `▲ ${d.alert.text}`;
   const age = now && d.createdAt ? ` ${fmtAge(now - d.createdAt)}` : '';
   return `◆ on duty${age} · every ${fmtDur(d.everyMs)}`;
@@ -139,5 +157,5 @@ function recoverText(label) { return `🟢 Duty: ${label} — working again`; }
 
 module.exports = {
   DEFAULT_SETTINGS, parseEvery, fmtDur, fmtAge, newDuty, locateAgent, evaluate,
-  applyOk, applyFail, applyReset, dutyToken, alertText, recoverText,
+  applyOk, applyFail, applyReset, fmtAgeShort, dutyToken, dutyText, alertText, recoverText,
 };

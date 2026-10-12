@@ -26,11 +26,25 @@ const SAMPLE = [
   '',
 ].join('\r\n');
 
-// The name row: a star coloured by its kind, the violet Lavish dot, the name, the project of a
-// detached copy, the hotkeys. A project is one line: no branch row, no project row.
+// The name row: a star coloured by its kind, the violet Lavish dot, the name, the duty mark, the
+// project of a detached copy, the hotkeys. A project is one line: no branch, project or duty row.
 const STARS = '{ token = "$star", rules = [{ starts_with = "★1", fg = "#fabd2f" }, { starts_with = "★2", fg = "#8ec07c" }, '
   + '{ starts_with = "★3", fg = "#d3869b" }, { starts_with = "★4", fg = "#fe8019" }] }';
-const NAME_ROW = `["state_icon", ${STARS}, { token = "$lavish", fg = "#a371f7" }, "workspace", { token = "$project", dim = true }, { token = "$key", fg = "#83a598" }]`;
+const DUTY = '{ token = "$duty", fg = "#b8bb26", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }] }';
+const NAME_ROW = `["state_icon", ${STARS}, { token = "$lavish", fg = "#a371f7" }, "workspace", ${DUTY}, { token = "$project", dim = true }, { token = "$key", fg = "#83a598" }]`;
+const PROJECT_ROW = `["state_icon", ${STARS}, { token = "$lavish", fg = "#a371f7" }, "workspace", { token = "$project", dim = true }, { token = "$key", fg = "#83a598" }]`;
+const DUTY_ROW = '[{ token = "$duty", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }, { starts_with = "◆", fg = "#b8bb26" }] }]';
+
+test('refresh moves the duty mark from a row of its own to the right of the name', () => {
+  const old = cp.patchConfig(SAMPLE).text.replace(NAME_ROW, `${PROJECT_ROW},
+  ${DUTY_ROW}`);
+  assert.ok(old.includes(PROJECT_ROW) && old.includes(DUTY_ROW));
+  const next = cp.refreshConfig(old);
+  assert.ok(next.includes(NAME_ROW));
+  assert.ok(!next.includes(PROJECT_ROW) && !next.includes(DUTY_ROW));
+  assert.equal(next.split('token = "$duty"').length - 1, 1);
+  assert.equal(cp.refreshConfig(next), next, 'a second refresh changes nothing');
+});
 const LAVISH_ROW = `["state_icon", ${STARS}, { token = "$lavish", fg = "#a371f7" }, "workspace", { token = "$key", fg = "#83a598" }]`;
 
 test('refresh makes a project one line: the branch row and the project row go, the project stands after the name', () => {
@@ -64,7 +78,7 @@ test('patch replaces rows, keeps $kran and other content, adds the key binding',
   assert.ok(t.includes(`  [{ token = "$section", fg = "#fabd2f", bold = true }],\r\n  ${NAME_ROW},`), 'title row first, then the name row with its star and hotkey');
   assert.ok(!t.includes('starts_with = "━━"'), 'no title-workspace styling');
   assert.ok(!t.includes('[{ token = "$project", dim = true }],'), 'the project is on the name row, not a row of its own');
-  assert.ok(t.includes('token = "$duty"'));
+  assert.equal(t.split('token = "$duty"').length - 1, 1, 'the duty mark is on the name row only');
   assert.ok(t.includes('  ["$kran"],'));
   assert.equal(t.match(/\["branch", "git_status"\]/g), null, 'no branch row: a project is one line');
   assert.ok(t.includes('key = "prefix+shift+s"'));

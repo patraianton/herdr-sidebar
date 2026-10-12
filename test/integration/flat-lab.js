@@ -80,11 +80,12 @@ async function main() {
   const canFlat = spawnSync(CLIENT, ['--default-config'], { encoding: 'utf8' }).stdout || '';
   await step('the new build knows group_worktrees', async () => assert(/group_worktrees/.test(canFlat), 'not in --default-config'));
   await step('the new build draws a Space with the token "nested" under the one above', async () => assert(/token "nested"/.test(canFlat), 'not in --default-config'));
+  await step('the new build knows the separator between the parts of a row', async () => assert(/^# separator = /m.test(canFlat), 'not in --default-config'));
 
   fs.rmSync(LAB, { recursive: true, force: true });
-  for (const d of ['acme-api', 'blog', 'notes', 'wt', 'config']) fs.mkdirSync(path.join(LAB, d), { recursive: true });
+  for (const d of ['acme-api', 'blog', 'notes', 'customer-onboarding-flow', 'wt', 'config']) fs.mkdirSync(path.join(LAB, d), { recursive: true });
   const base = 'onboarding = false\n[ui]\nsidebar_width = 34\nsidebar_min_width = 34\nsidebar_max_width = 34\n[ui.toast]\ndelivery = "herdr"\n[server]\nheadless_cols = 150\nheadless_rows = 40\n';
-  fs.writeFileSync(env.HERDR_CONFIG_PATH, configpatch.patchConfig(base, { flat: true }).text);
+  fs.writeFileSync(env.HERDR_CONFIG_PATH, configpatch.patchConfig(base, { flat: true, compact: true }).text);
   fs.writeFileSync(path.join(CONFIG_DIR, 'install.json'), JSON.stringify({ configFile: env.HERDR_CONFIG_PATH, originalRows: null, hadTable: false }));
   fs.writeFileSync(path.join(CONFIG_DIR, 'settings.json'), JSON.stringify({ starsOnTop: [1], starNames: ['My project', 'Job 1', 'Job 2', 'Job 3'] }));
   const repo = path.join(LAB, 'acme-api');
@@ -105,7 +106,7 @@ async function main() {
   for (const name of ['awsome-motive-landing', 'pricing']) {
     h('worktree', 'create', '--workspace', wsA, '--branch', name, '--path', path.join(LAB, 'wt', name), '--label', name, '--no-focus');
   }
-  for (const name of ['blog', 'notes']) h('workspace', 'create', '--cwd', path.join(LAB, name), '--label', name, '--no-focus');
+  for (const name of ['blog', 'notes', 'customer-onboarding-flow']) h('workspace', 'create', '--cwd', path.join(LAB, name), '--label', name, '--no-focus');
 
   daemon = spawn(process.execPath, [path.join(ROOT, 'src', 'daemon.js')], {
     env: { ...env, HERDR_SOCKET_PATH: SOCK, HERDR_PLUGIN_STATE_DIR: STATE_DIR, HERDR_PLUGIN_CONFIG_DIR: CONFIG_DIR, HERDR_BIN_PATH: CLIENT, SIDEBAR_TELEGRAM_DISABLED: '1' },
@@ -123,6 +124,13 @@ async function main() {
   const order = ['blog', 'notes', 'acme-api', 'awsome-motive-landing', 'pricing'];
   for (const [index, label] of order.entries()) await helper('unit.move', { key: `ws:${id(label)}`, catId: cat, index });
   for (const label of ['acme-api', 'pricing']) await helper('star.set', { wsId: id(label), kind: 1 });
+  // Duty agents on a short name and on a name too long for the row.
+  for (const label of ['notes', 'customer-onboarding-flow']) {
+    const pane = (await api('pane.list', { workspace_id: id(label) })).panes[0].pane_id;
+    h('pane', 'report-agent', pane, '--source', 'lab', '--agent', 'claude', '--state', 'working');
+    await waitFor(`agent in ${label}`, async () => (await api('agent.list')).agents.some(a => a.pane_id === pane));
+    await helper('duty.start', { paneId: pane, every: '30m', source: 'agent' });
+  }
 
   await step('nothing is detached: every workspace keeps its id', async () => {
     await sleep(4000);
@@ -154,7 +162,7 @@ async function main() {
     const s = screen();
     const lines = s.split(/\r?\n/);
     const at = re => lines.findIndex(l => re.test(l));
-    assert(at(/★1 · acme-api/) >= 0 && at(/└─.*pricing/) === at(/★1 · acme-api/) + 1, `pricing not right under acme-api:\n${s}`);
+    assert(at(/★1 acme-api/) >= 0 && at(/└─.*pricing/) === at(/★1 acme-api/) + 1, `pricing not right under acme-api:\n${s}`);
     assert(at(/CODE/) < at(/awsome-motive/), `the copy without the star went up:\n${s}`);
     assert(!/[├└]─/.test(lines[at(/awsome-motive/)]), `the copy without the star is drawn as nested:\n${s}`);
   });
@@ -162,13 +170,21 @@ async function main() {
   await step('the name is shown whole before ⎇ gets the rest', async () => {
     const s = screen();
     assert(/awsome-motive-landing/.test(s), `name cut:\n${s}`);
-    assert(/awsome-motive-landing\s+·\s+⎇/.test(s), `name with its project:\n${s}`);
+    assert(/awsome-motive-landing ⎇/.test(s), `name with its project, one space between:\n${s}`);
+  });
+  await step('a duty mark stands right of the name without words; a long name gives way to it', async () => {
+    await waitFor('duty marks drawn', async () => /notes \d+[mhd]\/30m/.test(screen()), 30000)
+      .catch(e => { throw new Error(`${e.message}\n${screenText}`); });
+    const s = screen();
+    assert(!/on duty/.test(s), `a duty line in words:\n${s}`);
+    const long = s.split(/\r?\n/).find(l => /customer-onboard/.test(l)) || '';
+    assert(/customer-onboard\S*… \d+[mhd]\/30m/.test(long), `the long name is not cut before its duty mark:\n${s}`);
   });
   await step('a project under a title starts at the same column as the others', async () => {
     const lines = screen().split(/\r?\n/).map(l => l.split('│')[0]);
     const lead = re => { const l = lines.find(x => re.test(x)); return l ? l.length - l.trimStart().length : -1; };
-    const titled = lead(/★1 · acme-api/);
-    const plain = lead(/ notes\s*$/);
+    const titled = lead(/★1 acme-api/);
+    const plain = lead(/ notes /);
     assert(titled >= 0 && titled === plain, `acme-api starts at ${titled}, notes at ${plain}:\n${lines.join('\n')}`);
   });
   await step('no warning about the setting on screen', async () => {
