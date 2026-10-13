@@ -31,9 +31,22 @@ const SAMPLE = [
 const STARS = '{ token = "$star", rules = [{ starts_with = "★1", fg = "#fabd2f" }, { starts_with = "★2", fg = "#8ec07c" }, '
   + '{ starts_with = "★3", fg = "#d3869b" }, { starts_with = "★4", fg = "#fe8019" }] }';
 const DUTY = '{ token = "$duty", fg = "#b8bb26", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }] }';
-const NAME_ROW = `["state_icon", ${STARS}, { token = "$lavish", fg = "#a371f7" }, "workspace", ${DUTY}, { token = "$project", dim = true }, { token = "$key", fg = "#83a598" }]`;
+const REMOTE = '{ token = "$remote", fg = "#458588" }';
+const NAME_ROW = `["state_icon", ${STARS}, { token = "$lavish", fg = "#a371f7" }, "workspace", ${REMOTE}, ${DUTY}, { token = "$project", dim = true }, { token = "$key", fg = "#83a598" }]`;
+// before the remote machine mark (13.10.2026)
+const DUTY_NAME_ROW = `["state_icon", ${STARS}, { token = "$lavish", fg = "#a371f7" }, "workspace", ${DUTY}, { token = "$project", dim = true }, { token = "$key", fg = "#83a598" }]`;
 const PROJECT_ROW = `["state_icon", ${STARS}, { token = "$lavish", fg = "#a371f7" }, "workspace", { token = "$project", dim = true }, { token = "$key", fg = "#83a598" }]`;
 const DUTY_ROW = '[{ token = "$duty", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }, { starts_with = "◆", fg = "#b8bb26" }] }]';
+
+test('refresh adds the remote machine mark to the name row of the previous version', () => {
+  const old = cp.patchConfig(SAMPLE).text.replace(NAME_ROW, DUTY_NAME_ROW);
+  assert.ok(old.includes(DUTY_NAME_ROW) && !old.includes('$remote'));
+  const next = cp.refreshConfig(old);
+  assert.ok(next.includes(NAME_ROW));
+  assert.equal(next.split('token = "$remote"').length - 1, 1);
+  assert.ok(next.includes('  ["$kran"],'), 'a row added by someone else stays');
+  assert.equal(cp.refreshConfig(next), next, 'a second refresh changes nothing');
+});
 
 test('refresh moves the duty mark from a row of its own to the right of the name', () => {
   const old = cp.patchConfig(SAMPLE).text.replace(NAME_ROW, `${PROJECT_ROW},

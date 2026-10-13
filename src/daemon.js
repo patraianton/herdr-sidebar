@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 // Background helper, one per herdr session: keeps the Spaces order, publishes
-// the $section/$project/$duty/$key/$star/$lavish tokens, watches duty agents, keeps the jump
+// the $section/$project/$duty/$key/$star/$lavish/$remote tokens, watches duty agents, keeps the jump
 // hotkeys in config.toml and serves the window and CLI. Category titles are $section tokens drawn on top of the first project
 // of each category; earlier versions used separate title workspaces, which the
 // helper now closes.
@@ -22,12 +22,13 @@ const configpatch = require('./configpatch');
 const stars = require('./stars');
 const userSettings = require('./settings');
 const lavish = require('./lavish');
+const remote = require('./remote');
 
 const SUBSCRIPTIONS = [
   'workspace.created', 'workspace.closed', 'workspace.moved', 'workspace.reordered', 'workspace.renamed',
   'worktree.created', 'worktree.opened', 'worktree.removed',
 ].map(type => ({ type }));
-const TOKEN_KEYS = ['section', 'project', 'duty', 'key', 'star', 'lavish', 'nested'];
+const TOKEN_KEYS = ['section', 'project', 'duty', 'key', 'star', 'lavish', 'nested', 'remote'];
 const NOT_INSTALLED = 'The plugin is not set up in herdr\'s config yet. Run: herdr plugin action invoke setup --plugin anton.sidebar';
 
 // config.toml access for the hotkeys; tests pass their own.
@@ -85,7 +86,7 @@ function defaultKeysConfig(configDir) {
   };
 }
 
-function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: subscribeIn, now: clockIn, sendTelegram: sendIn, keysConfig: keysIn, lavish: lavishWatch = null }) {
+function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: subscribeIn, now: clockIn, sendTelegram: sendIn, keysConfig: keysIn, lavish: lavishWatch = null, remote: remoteWatch = null }) {
   const herdr = herdrIn || makeHerdr(socketPath);
   const keysConfig = keysIn || defaultKeysConfig(configDir);
   const subscribe = subscribeIn || rpc.subscribe;
@@ -102,9 +103,12 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
   let state = store.loadState(files.state);
   let startedAt = clock();
   let chain = Promise.resolve();
-  const last = { snap: null, units: null, sections: {}, nested: new Map(), lavish: new Set() };
+  const last = { snap: null, units: null, sections: {}, nested: new Map(), lavish: new Set(), remote: new Map() };
   let lavishBusy = false;
   let lavishError = '';
+  let remoteBusy = false;
+  let remoteAt = 0;
+  const remoteErrors = new Map(); // machine -> the last error logged, so a machine that stays down is logged once
   let dragHints = []; // workspace ids herdr reported as moved by a reorder since the last cycle
   let sub = null;
   let server = null;
@@ -377,6 +381,9 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     for (const [wsId, list] of keysByWs()) put(wsId, 'key', list.map(k => k.display).join(' '));
     for (const [wsId, kind] of starKinds(snap)) put(wsId, 'star', stars.token(kind));
     for (const p of snap.panes) if (last.lavish.has(p.pane_id)) put(p.workspace_id, 'lavish', lavish.MARK);
+    const machines = new Map();
+    for (const p of snap.panes) for (const name of last.remote.get(p.pane_id) || []) machines.set(p.workspace_id, [...(machines.get(p.workspace_id) || []), name]);
+    for (const [wsId, names] of machines) put(wsId, 'remote', remote.token(names));
     return want;
   }
 
@@ -453,15 +460,17 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
   // A process keeps the HERDR_PANE_ID it started with, but a pane moved to another workspace
   // (a detached copy) gets a new id; herdr still answers for the old one. Old id -> id now.
   const paneNow = new Map();
-  async function currentPanes(set) {
-    const live = new Set(last.snap ? last.snap.panes.map(p => p.pane_id) : []);
-    const out = new Set();
-    for (const id of set) {
-      if (!live.has(id) && !live.has(paneNow.get(id))) {
-        try { const p = await herdr.getPane(id); if (p && p.pane_id) paneNow.set(id, p.pane_id); } catch {}
-      }
-      out.add(live.has(id) ? id : paneNow.get(id) || id);
+  async function paneIdNow(id, live) {
+    if (!live.has(id) && !live.has(paneNow.get(id))) {
+      try { const p = await herdr.getPane(id); if (p && p.pane_id) paneNow.set(id, p.pane_id); } catch {}
     }
+    return live.has(id) ? id : paneNow.get(id) || id;
+  }
+  const livePanes = () => new Set(last.snap ? last.snap.panes.map(p => p.pane_id) : []);
+  async function currentPanes(set) {
+    const live = livePanes();
+    const out = new Set();
+    for (const id of set) out.add(await paneIdNow(id, live));
     return out;
   }
   // The other way round: the ids the processes in these panes may still carry.
@@ -476,8 +485,33 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     if (!same) kick('lavish', 0);
   }
 
+  // Which panes have a run on a remote machine (settings.json "remotes"). Asked every
+  // remoteTickSec beside the cycle; ssh to a machine that is down takes a few seconds.
+  function refreshRemote() {
+    if (!remoteWatch || remoteBusy || stopping) return Promise.resolve();
+    remoteBusy = true;
+    remoteAt = clock();
+    return remoteWatch.refresh()
+      .then(async ({ marks, errors }) => {
+        for (const [name, msg] of errors) if (remoteErrors.get(name) !== msg) { log('remote', name, 'does not answer:', msg); remoteErrors.set(name, msg); }
+        for (const name of [...remoteErrors.keys()]) if (!errors.some(e => e[0] === name)) { log('remote', name, 'answers again'); remoteErrors.delete(name); }
+        const live = livePanes();
+        const now = new Map();
+        for (const [id, names] of marks) {
+          const pane = await paneIdNow(id, live);
+          now.set(pane, [...(now.get(pane) || []), ...names]);
+        }
+        const key = m => JSON.stringify([...m].map(([k, v]) => [k, [...new Set(v)].sort()]).sort());
+        const changed = key(now) !== key(last.remote);
+        last.remote = now;
+        if (changed) kick('remote', 0);
+      }, e => log('remote probe failed', e.message))
+      .finally(() => { remoteBusy = false; });
+  }
+
   function tick() {
     refreshLavish();
+    if (clock() - remoteAt >= (settings.remoteTickSec || 60) * 1000) refreshRemote();
     const t = clock();
     if (lastTickAt && t - lastTickAt > 3 * settings.tickSec * 1000) {
       startedAt = t;
@@ -969,7 +1003,7 @@ function createDaemon({ socketPath, dir, configDir, herdr: herdrIn, subscribe: s
     _test: {
       markConnected: () => { connected = true; },
       cycle: reason => serial(() => cycleInner(reason)),
-      connectEvents, reconnect, tick, refreshLavish,
+      connectEvents, reconnect, tick, refreshLavish, refreshRemote,
       state: () => state, startedAt: () => startedAt, stopping: () => stopping,
     },
   };
@@ -987,7 +1021,14 @@ if (require.main === module) {
   const dir = paths.sessionDir(stateRoot, socketPath);
   // The Lavish pages and the panes that waited on them; Alt+5 reads the panes to open the right tab.
   const lavishFile = path.join(dir, 'lavish-pages.json');
-  const d = createDaemon({ socketPath, dir, configDir, lavish: lavish.makeWatch({ load: () => store.loadJson(lavishFile, {}), save: data => store.saveJson(lavishFile, data) }) });
+  // Machines that run work for the projects (settings.json "remotes"); none set, nothing is asked.
+  userSettings.useConfigDir(configDir);
+  const remotes = remote.parseRemotes(userSettings.settings().remotes);
+  const d = createDaemon({
+    socketPath, dir, configDir,
+    lavish: lavish.makeWatch({ load: () => store.loadJson(lavishFile, {}), save: data => store.saveJson(lavishFile, data) }),
+    remote: remotes.length ? remote.makeWatch({ remotes }) : null,
+  });
   process.on('uncaughtException', e => { d.log('crash', e && e.stack); process.exit(1); });
   process.on('unhandledRejection', e => d.log('unhandled', e && (e.stack || e.message || e)));
   d.start().then(ok => { if (!ok) process.exit(0); }, e => { d.log('start failed', e.message); process.exit(1); });

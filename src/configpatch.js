@@ -4,6 +4,7 @@
 // marker comments, and undo that exactly.
 const { KINDS, token } = require('./stars');
 const lavish = require('./lavish');
+const remote = require('./remote');
 
 const BEGIN = '# >>> anton.sidebar (Sidebar Organizer plugin; undo: U in its window)';
 const END = '# <<< anton.sidebar';
@@ -18,12 +19,14 @@ const KEYS_END = '# <<< anton.sidebar keys';
 // ($duty, `3d/30m`, red on an alarm) and the project of a detached copy
 // ($project, `⎇ name`).
 // $lavish is the violet dot after the star: an agent there waits for your answer on a Lavish page.
+// $remote (`@mac`) right of the name: a remote machine runs work started from this project.
 const STAR_TOKEN = `{ token = "$star", rules = [${KINDS.map(k => `{ starts_with = "${token(k.kind)}", fg = "${k.color}" }`).join(', ')}] }`;
 const LAVISH_TOKEN = `{ token = "$lavish", fg = "${lavish.COLOR}" }`;
 const DUTY_TOKEN = '{ token = "$duty", fg = "#b8bb26", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }] }';
+const REMOTE_TOKEN = `{ token = "$remote", fg = "${remote.COLOR}" }`;
 const STYLED_ROWS = [
   '  [{ token = "$section", fg = "#fabd2f", bold = true }],',
-  `  ["state_icon", ${STAR_TOKEN}, ${LAVISH_TOKEN}, "workspace", ${DUTY_TOKEN}, { token = "$project", dim = true }, { token = "$key", fg = "#83a598" }],`,
+  `  ["state_icon", ${STAR_TOKEN}, ${LAVISH_TOKEN}, "workspace", ${REMOTE_TOKEN}, ${DUTY_TOKEN}, { token = "$project", dim = true }, { token = "$key", fg = "#83a598" }],`,
 ];
 const OPEN_KEY = 'prefix+shift+s';
 // Alt+N walks through the workspaces with a star of kind N; FN puts that star
@@ -64,6 +67,8 @@ const OUR_ROWS = new Set([
   // before the duty mark moved right of the name (12.10.2026)
   squash(`["state_icon", ${STAR_TOKEN}, ${LAVISH_TOKEN}, "workspace", { token = "$project", dim = true }, { token = "$key", fg = "#83a598" }]`),
   squash('[{ token = "$duty", rules = [{ starts_with = "▲", fg = "#fb4934", bold = true }, { starts_with = "◆", fg = "#b8bb26" }] }]'),
+  // before the remote machine mark (13.10.2026)
+  squash(`["state_icon", ${STAR_TOKEN}, ${LAVISH_TOKEN}, "workspace", ${DUTY_TOKEN}, { token = "$project", dim = true }, { token = "$key", fg = "#83a598" }]`),
 ]);
 const TABLE_RE = /^\s*\[\[?\s*[A-Za-z0-9_."-]+(\s*\.\s*[A-Za-z0-9_."-]+)*\s*\]\]?\s*(#.*)?$/;
 

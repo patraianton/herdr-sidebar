@@ -216,6 +216,43 @@ read `links[$HERDR_PANE_ID]` to show the agent's open pages right in its window.
 
 </details>
 
+## Work on remote machines
+
+When an agent starts work on another machine over ssh — a Codex run on a Mac mini, a build on a
+server — its project gets `@mac` right of its name while that work runs. A project that looks idle
+here is then not mistaken for one that has stopped.
+
+- Two machines at once: `@mac+dev`.
+- The mark comes about a minute after the run starts and goes about a minute after it ends.
+- A process counts once it has been seen twice in a row, so the quick `ssh mac pgrep …` an agent
+  uses to check on its run does not make the mark blink.
+- A detached copy keeps its mark: the run carries the pane id it started with, and herdr still
+  answers for it.
+
+Three lines turn it on:
+
+1. Your shell profile copies the pane id into a variable ssh may send. PowerShell:
+   `if ($env:HERDR_PANE_ID) { $env:LC_HERDR_PANE = $env:HERDR_PANE_ID }`; bash or zsh:
+   `[ -n "$HERDR_PANE_ID" ] && export LC_HERDR_PANE="$HERDR_PANE_ID"`.
+2. `~/.ssh/config` sends it:
+
+   ```
+   Host *
+       SendEnv LC_HERDR_PANE
+   ```
+
+   Most servers already take `LC_*` variables (`AcceptEnv LANG LC_*` in `sshd_config` on macOS,
+   Debian and Ubuntu), so nothing changes on the server.
+3. `settings.json` names the machines: `"remotes": ["mac", { "name": "dev", "ssh": "root@codex-dev" }]`
+   — a plain name is also the ssh host; `name` is what the mark shows (up to 8 letters).
+
+Once a minute the helper asks each machine over ssh (key login only, it never asks for a password)
+which processes carry the variable: `/proc` on Linux, `ps` on macOS. On Linux log in as root or as
+the user who runs the work. macOS hides the environment of its own system programs, so a bare
+`sleep` is not seen; a `codex`, `node` or `python` run is. Only panes opened after the profile
+change carry the id. A machine that does not answer keeps its marks for three rounds and is
+written once to the helper's log.
+
 ## The window
 
 <div align="center">
@@ -283,13 +320,15 @@ action: it brings the config rows and bindings up to date and restarts the plugi
   "blockedMin": 10,
   "missingMin": 3,
   "graceMin": 10,
-  "silenceMarginMin": 10
+  "silenceMarginMin": 10,
+  "remotes": ["mac", { "name": "dev", "ssh": "root@codex-dev" }],
+  "remoteTickSec": 60
 }
 ```
 
 `starNames` and `starsOnTop` are easiest to set from the window (`s` → **Rename the kinds of
-stars…** and **Stars at the top of the sidebar…**). The duty thresholds are read when the helper
-starts — run the `setup` action again to restart it.
+stars…** and **Stars at the top of the sidebar…**). The duty thresholds and the remote machines
+are read when the helper starts — run the `setup` action again to restart it.
 
 ## The extended herdr build
 
@@ -313,8 +352,8 @@ those. With stock herdr everything else works as described, the parts of a row a
 ## How it works
 
 - A small background helper (one per herdr session) watches workspace events, keeps the order of the
-  sidebar, and publishes custom tokens — `$section`, `$star`, `$lavish`, `$key`, `$project`,
-  `$duty` — that the plugin's sidebar rows display.
+  sidebar, and publishes custom tokens — `$section`, `$star`, `$lavish`, `$remote`, `$key`,
+  `$project`, `$duty` — that the plugin's sidebar rows display.
 - Plugin state lives in herdr's plugin state folder (one folder per session); your settings live
   in the plugin config folder. Nothing is written into the plugin checkout.
 - The window, the hotkeys and `herdr-duty` talk to the helper over a local pipe; if the helper is
