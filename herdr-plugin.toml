@@ -4,7 +4,7 @@ id = "anton.sidebar"
 name = "Sidebar Organizer"
 version = "0.10.0"
 min_herdr_version = "0.9.1"
-description = "Categories in the Spaces sidebar, colour stars with Alt+1…4, jump hotkeys, worktree detach and alerts when a 24/7 agent stops working"
+description = "Tidy herdr sidebar for dozens of AI agents: categories, colour stars, jump hotkeys, worktree copies under their project, alerts when a 24/7 agent stops"
 platforms = ["windows", "linux", "macos"]
 
 [[startup]]
