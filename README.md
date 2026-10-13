@@ -133,7 +133,7 @@ the two apart, `w` will not put the copy back. Copies you detached yourself are 
 
 ### With a herdr that lists copies on their own lines
 
-A herdr build that knows `[ui.sidebar.spaces] group_worktrees` (proposed upstream; built from
+A herdr build that knows `[ui.sidebar.spaces] group_worktrees` (not in stock herdr; built from
 [patraianton/herdr](https://github.com/patraianton/herdr), branch `anton/build`) can draw every
 worktree copy as a line of its own. When the herdr the plugin runs knows it, setup writes
 `group_worktrees = false` into the plugin's block, and then nothing is detached at all: no pane moves,
